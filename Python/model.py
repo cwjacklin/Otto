@@ -20,27 +20,16 @@ from sklearn.naive_bayes    import GaussianNB
 
 from sklearn.metrics        import accuracy_score, log_loss, make_scorer
 from sklearn.grid_search    import GridSearchCV
-from logit import  *
+from utils import  *
 
-def write(string):
-    sys.stdout.write(string)
-    sys.stdout.flush()
-
-def getGrid(center, length = 5, scale = 2):
-    return center*(scale + 0.)**np.arange(-length, length)
-
-def getSubmission(file_name, model, X, y, Xtest, **kwargs):
-    time_before = time.time()
-    md = model(**kwargs)
-    write("Start Training " + str(model).split(" ")[-1].split(".")[-1][:-2] + \
-          "\n" + str(kwargs) + "\n")
-    md.fit(X, y)
-    yhat = md.predict_proba(Xtest)
-    yhat = (yhat + 0.001)/1.009
-    submission = pd.read_csv('../Data/sampleSubmission.csv')
-    yhat = pd.DataFrame(yhat, index = submission.id.values, 
-                        columns = submission.columns[1:])
-    yhat.to_csv(file_name, index_label = 'id')
+def LoadData():
+    write("Loading Data...\n")
+    data = np.load("../Data/Data.npz")
+    global train; train = data['train']
+    global valid; valid = data['valid']
+    global X    ; X     = data['X']
+    global y    ; y     = data['y']
+    global Xtest; Xtest = data['Xtest']
 
 def runModel(model, metric, X, y, train, valid, **kwargs):
     time_before = time.time()
@@ -57,16 +46,6 @@ def runModel(model, metric, X, y, train, valid, **kwargs):
     write("Running time: " + str(running_time) + "\n\n\n")
     return acc
 
-
-def LoadData():
-    write("Loading Data...\n")
-    data = np.load("../Data/Data.npz")
-    global train; train = data['train']
-    global valid; valid = data['valid']
-    global X    ; X     = data['X']
-    global y    ; y     = data['y']
-    global Xtest; Xtest = data['Xtest']
-
 def gridSearch(model, scorer, params, X, y, n_jobs):
     write("Grid Searching: " + str(model) +
           " with scorer: " + str(scorer) + "\n")
@@ -78,13 +57,6 @@ def gridSearch(model, scorer, params, X, y, n_jobs):
                            str(grid.best_params_) + " in " + 
                            str(grid.best_estimator_) + "\n")
     return grid    
-
-def logLossAdj(y, yhat, inflate = 0.001):
-    return log_loss(y, (yhat + inflate)/(1 + 9*inflate))
-
-def logLossAdjGrid(y, yhat):
-    return np.min([logLossAdj(y, yhat, eps = inflate) for inflate in 
-           getGrid(0.0001, 10)])
 
 def mainGrid(X, to_run = ["svm"]):
     ### Define Objective
@@ -170,8 +142,5 @@ if __name__ == "__main__":
     nCores = int(os.environ['OMP_NUM_THREADS'])
     print nCores
     print model
-    mainGrid(X, to_run = [])
+    mainGrid(X, to_run = ['logit'])
 
-    rbm = BernoulliRBM(n_components = 100, learning_rate = 0.1, 
-                       batch_size = 128, n_iter = 20, 
-                       verbose = True)
