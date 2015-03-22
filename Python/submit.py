@@ -21,9 +21,7 @@ def SubmitNN(X, Xtest):
     nn.fit(X, y)
     write(str(nn.score(X, y)))
     yhat = nn.predict_proba(Xtest)
-    yhat = np.maximum(epsilon, yhat)
-    yhat = np.minimum(1 - epsilon, yhat)
-    getSubmission("nn.csv", yhat)
+    getSubmission("nn.csv", yhat, eps = epsilon)
 
 
 def SubmitkNN(X, Xtest):
@@ -34,8 +32,6 @@ def SubmitkNN(X, Xtest):
     knn.fit(X, y)
     write(str(knn.score(X, y)))
     yhat = knn.predict_proba(Xtest)
-    yhat = np.maximum(epsilon, yhat)
-    yhat = np.minimum(1 - epsilon, yhat)
-    getSubmission("knn.csv", yhat)
+    getSubmission("knn.csv", yhat, eps = epsilon)
 
 SubmitkNN(X, Xtest)

@@ -42,10 +42,12 @@ def runModel(model, metric, X, y, train, valid, **kwargs):
           "\n" + str(kwargs) + "\n")
     md.fit(X[train], y[train])
     write("Finish Training, Fit Valid Data\n")
-    yhat = md.predict_proba(X[valid])
-    #acc = accuracy_score(y[valid], yhat)
-    acc = metric(y[valid], yhat)
-    write(str(metric).split(" ")[1] + "\t\t: " + str(acc) + "\n")
+    if metric == accuracy_score:
+        yhat = md.predict(X[valid])
+    else:
+        yhat = md.predict_proba(X[valid])
+    metric_res = metric(y[valid], yhat)
+    write(str(metric) + " : " + str(acc) + "\n")
     running_time = time.time() - time_before
     write("Running time: " + str(running_time) + "\n\n\n")
     return acc
