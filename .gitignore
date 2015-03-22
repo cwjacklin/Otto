@@ -1,3 +1,10 @@
+Jobs/
+*.csv
+*.pkl
+*~
+.gitignore
+*.npz
+*.RData
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
