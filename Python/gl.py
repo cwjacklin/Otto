@@ -29,21 +29,13 @@ Xtest = gl.SFrame.read_csv('../data/test.csv')
 sample = gl.SFrame.read_csv('../data/sampleSubmission.csv')
 
 del X['id']
-#Xtrain, Xvalid = X.random_split(.7, seed = 1)
-#del X
-#y = transformLabel(array(Xvalid['target']))
-
-# Train a model
-#row_subsample = 1.; print row_subsample
-#max_iteration = 1000; print max_iteration
 model = gl.boosted_trees_classifier.create(X, target = 'target',
-		                      max_iterations = 3000,
-				      row_subsample = 0.8,
-				      step_size = 0.1)
+		                      max_iterations = 200,
+				      row_subsample = 0.8)
+
+makeSubmission("GBM_200iter_Subsample.8", Xtest, model)
 
 """
-makeSubmission("GBM_200iter", Xtest, model)
-
 yh = model.predict(Xvalid)
 print gl.evaluation.accuracy(Xvalid['target'], yh)
 yhat = model.predict_topk(Xvalid, output_type = 'probability', k = 9)

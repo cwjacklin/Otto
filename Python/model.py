@@ -71,6 +71,7 @@ def gridSearch(model, scorer, params, X, y, n_jobs):
 
 def mainGrid(X, to_run = ["svm"]):
     ### Define Objective
+    global log_scorer, acc_scorer, log_sc_adj
     log_scorer = make_scorer(log_loss, greater_is_better = False, 
                          needs_proba = True) 
     acc_scorer = make_scorer(accuracy_score, greater_is_better = True,
@@ -145,6 +146,15 @@ def mainGrid(X, to_run = ["svm"]):
         params  = dict()
         nbGrid  = gridSearch(model, log_sc_adj, params, X, y, n_jobs = nCores)
 
+    ### 8. Neural Network
+    if "nn" in to_run:
+        model   = MultilayerPerceptronClassifier(max_iter = 400, 
+                verbose = False, hidden_layer_sizes = 100, 
+                alpha = 1e-5, learning_rate = 'invscaling')
+        params  = dict(alpha = .001*getGrid(.001, 10),
+                       hidden_layer_sizes = [20, 40, 80, 160, 320],
+                       activation = ['relu', 'logistic'])
+        nnGrid  = gridSearch(model, log_sc_adj, params, X, y, n_jobs = 1)
 if __name__ == "__main__":
     try: X
     except NameError: LoadData()
@@ -154,6 +164,6 @@ if __name__ == "__main__":
     nCores = int(os.environ['OMP_NUM_THREADS'])
     print nCores
     print model
-    nCores = 10 
-    mainGrid(X, to_run = [''])
+    print "max_iter 400, invscaling"
+    mainGrid(X, to_run = [model])
 

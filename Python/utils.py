@@ -4,6 +4,7 @@ from sklearn.metrics      import accuracy_score
 from sklearn.feature_extraction.text import TfidfTransformer
 import sys
 import numpy as np
+import pandas as pd
 
 ### 1. Feature Engineering
 def write(string):
@@ -36,13 +37,16 @@ def logLossAdj(y, yhat, inflate = 0.001):
     return log_loss(y, (yhat + inflate)/(1 + 9*inflate))
 
 def logLossAdjGrid(y, yhat):
-    res = [log_loss(y, yhat, eps = inflate) for inflate in
-                   getGrid(0.0001, 10)]
-    write(str(np.argmin(res)))
+    grid = getGrid(0.0001, 10)
+    res = [log_loss(y, yhat, eps = inflate) for inflate in grid]
+    write("Optimal Logloss Eps: " + str(grid[np.argmin(res)])+ "\n")
+    write("Optimal Logloss: " + str(min(res)))
     return np.min(res)
 
-def getSubmission(file_name, yhat):
+def getSubmission(file_name, yhat, eps):
     submission = pd.read_csv('../Data/sampleSubmission.csv')
+    yhat = np.maximum(eps, yhat)
+    yhat = np.minimum(1 - eps, yhat)
     yhat = pd.DataFrame(yhat, index = submission.id.values,
             columns = submission.columns[1:])
     assert (len(yhat) == len(submission))
