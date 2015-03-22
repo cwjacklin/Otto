@@ -3,6 +3,7 @@ Jobs/
 *.csv
 *.pkl
 *~
+.*
 .gitignore
 *.npz
 *.RData

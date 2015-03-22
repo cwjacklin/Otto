@@ -20,7 +20,11 @@ from sklearn.naive_bayes    import GaussianNB
 
 from sklearn.metrics        import accuracy_score, log_loss, make_scorer
 from sklearn.grid_search    import GridSearchCV
-from utils import  *
+
+from utils                   import  *
+sys.path.insert(0, '../Library/MLP/')
+from autoencoder            import *
+from multilayer_perceptron  import *
 
 def LoadData():
     write("Loading Data...\n")
@@ -40,11 +44,18 @@ def runModel(model, metric, X, y, train, valid, **kwargs):
     write("Finish Training, Fit Valid Data\n")
     yhat = md.predict_proba(X[valid])
     #acc = accuracy_score(y[valid], yhat)
-    acc = metric(y[valid], (yhat + 0.01)/1.09)
+    acc = metric(y[valid], yhat)
     write(str(metric).split(" ")[1] + "\t\t: " + str(acc) + "\n")
     running_time = time.time() - time_before
     write("Running time: " + str(running_time) + "\n\n\n")
     return acc
+
+def experiment():
+    rfmConf = dict(model = ExtraTreesClassifier,     X = X, y = y,
+                  metric = logLossAdjGrid, train = train, valid = valid,
+            n_estimators = 1000, n_jobs = 10, verbose = 2,
+               criterion = 'gini', max_features = 80)
+
 
 def gridSearch(model, scorer, params, X, y, n_jobs):
     write("Grid Searching: " + str(model) +
@@ -82,11 +93,11 @@ def mainGrid(X, to_run = ["svm"]):
     ### 2. Random Forest
     if "rf" in to_run:
         global rfmGrid
-        model   = RandomForestClassifier(n_estimators = 1000)
+        model   = RandomForestClassifier(n_estimators = 1000, n_jobs = 12)
         params  = dict(max_features = 10*np.arange(1,9))
         rfmGrid = gridSearch(model, log_sc_adj, params, X, y, n_jobs = nCores)
-        model   = ExtraTreesClassifier(n_estimators = 1000)
-        rfmGrid = gridSearch(model, log_sc_adj, params, X, y, n_jobs = nCores)
+        model   = ExtraTreesClassifier(n_estimators = 1000, n_jobs = 24)
+        rfmGrid = gridSearch(model, log_sc_adj, params, X, y, n_jobs = 1)
 
     ### 3. Stochastic Gradient Descent
     if "sgd" in to_run:
@@ -139,8 +150,10 @@ if __name__ == "__main__":
     except NameError: LoadData()
     try: model = os.environ['model']
     except KeyError: model = ''
+    
     nCores = int(os.environ['OMP_NUM_THREADS'])
     print nCores
     print model
-    mainGrid(X, to_run = ['logit'])
+    nCores = 10 
+    mainGrid(X, to_run = [''])
 
