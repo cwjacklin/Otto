@@ -82,7 +82,7 @@ def mainGrid(X, to_run = ["svm"]):
                          needs_proba = True)
     
     ### 0. Feature Engineer
-    X = TextTransform(X)
+    #X = TextTransform(X)
     #X = AddSquare(X)
 
     ### 1. Logistic
@@ -98,7 +98,7 @@ def mainGrid(X, to_run = ["svm"]):
         global rfmGrid
         model   = RandomForestClassifier(n_estimators = 1000, n_jobs = 12)
         params  = dict(max_features = 10*np.arange(1,9))
-        rfmGrid = gridSearch(model, log_sc_adj, params, X, y, n_jobs = nCores)
+        #rfmGrid = gridSearch(model, log_sc_adj, params, X, y, n_jobs = nCores)
         model   = ExtraTreesClassifier(n_estimators = 1000, n_jobs = 24)
         rfmGrid = gridSearch(model, log_sc_adj, params, X, y, n_jobs = 1)
 
