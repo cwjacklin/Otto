@@ -1,6 +1,9 @@
 import graphlab as gl
-from sklearn.metrics import log_loss
 import numpy as np
+from sklearn.metrics          import log_loss
+from sklearn.cross_validation import StratifiedKFold
+from utils import *
+import time
 
 def transformLabel(y):
     res = np.empty(shape = (len(y), 9))
@@ -24,16 +27,46 @@ def gridLogLoss(y, yhat):
 	        for x in .0001*2.**np.arange(-10,10)])
 
 # Load the data
-X = gl.SFrame.read_csv('../data/train.csv')
-Xtest = gl.SFrame.read_csv('../data/test.csv')
-sample = gl.SFrame.read_csv('../data/sampleSubmission.csv')
+def FinalModel(X, Xtest):
+    X = gl.SFrame.read_csv('../data/train.csv')
+    Xtest = gl.SFrame.read_csv('../data/test.csv')
+    sample = gl.SFrame.read_csv('../data/sampleSubmission.csv')
 
-del X['id']
-model = gl.boosted_trees_classifier.create(X, target = 'target',
-		                      max_iterations = 200,
-				      row_subsample = 0.8)
+    del X['id']
+    model = gl.boosted_trees_classifier.create(X, target = 'target',
+					  max_iterations = 200,
+					  row_subsample = 0.8)
 
-makeSubmission("GBM_200iter_Subsample.8", Xtest, model)
+    makeSubmission("GBM_200iter_Subsample.8", Xtest, model)
+
+def GetKFold(y):
+    n = len(y)
+    skf = StratifiedKFold(y, n_folds = 5)
+    for train_index, valid_index in skf:
+        train_bool = np.array(np.zeros(n), dtype = bool)
+        train_bool[train_index] = True
+        valid_bool = np.array(np.zeros(n), dtype = bool)
+        valid_bool[valid_index] = True
+        yield gl.SArray(train_bool), gl.SArray(valid_bool)
+
+if True:
+    X = gl.SFrame.read_csv('../data/train.csv')
+    del X['id']
+    y = np.array(X['target'])
+    res = []
+    for train_bool, valid_bool in GetKFold(y):
+        time_before = time.time()
+        job = gl.model_parameter_search(gl.boosted_trees_classifier.create, 
+	        training_set = X[train_bool], target = 'target', 
+            validation_set = X[valid_bool],
+	        row_subsample = [0.8, 0.9, 1],
+            max_iterations = 200,
+            step_size = [0.25, 0.5, 1.]
+            )
+        job_result = job.get_results()
+        print job_result
+        write("Fold 1 Running Time: " + str(time.time() - time_before) + "\n")
+        res.append(job_result)
 
 """
 yh = model.predict(Xvalid)
