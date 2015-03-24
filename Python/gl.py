@@ -7,6 +7,8 @@ import time
 import os
 import math
 import random
+import graphlab.aggregate as agg
+import argparse
 
 def TransformLabel(y):
     res = np.empty(shape = (len(y), 9))
@@ -26,10 +28,6 @@ def makeSubmission(file_name, Xtest, model):
     yhat = preds.to_dataframe()
     yhat.to_csv(file_name, index = None)
 
-def gridLogLoss(y, yhat):
-    return min([log_loss(y, yhat, eps = x) 
-	        for x in .0001*2.**np.arange(-10,10)])
-
 # Load the data
 def FinalModel():
     X = gl.SFrame.read_csv('../Data/train.csv')
@@ -43,21 +41,6 @@ def FinalModel():
                                           validation_set = None)
 
     makeSubmission("GBM_200iter_Subsample0.9_stepsize0.25", Xtest, model)
-
-def LogLossGL(model, train, test):
-    m = model(train, target = 'target', validation_set = None)
-
-    preds = m.predict_topk(test, output_type='probability', k=9)
-    preds['id'] = preds['id'].astype(int) + 1
-    preds = preds.unstack(['class', 'probability'], 'probs').unpack('probs', 
-                                                                '')
-    preds = preds.sort('id')
-    del preds['id']
-    yhat = preds.to_dataframe().as_matrix()
-    y = np.array(test['target'])
-    y = TransformLabel(y)
-    res = logLossAdjGrid(y, yhat)
-    return {"Log Loss" : res}
 
 def MulticlassLogLoss(model, test):
     preds = model.predict_topk(test, output_type='probability', k=9)
@@ -97,42 +80,43 @@ def GetKFold(y):
         valid_bool[valid_index] = True
         yield gl.SArray(train_bool), gl.SArray(valid_bool)
 
-def AnalyzeCV(res, file_name, cols):
-    res_all = res[0]['summary']
-    training_colnames = ['train_logloss']
-    validation_colnames = ['valid_logloss']
-    for i in range(1,5):
-        res_all = res_all.join(res[i]['summary'], on = cols, how = 'inner')
-        training_colnames.append('training_accuracy.' + str(i))
-        validation_colnames.append('validation_accuracy.' + str(i))
-    training_acc = res_all.select_columns(training_colnames).to_dataframe()
-    training_acc_mean = np.mean(training_acc.as_matrix(), axis = 1)
-    validation_acc = res_all.select_columns(validation_colnames).to_dataframe()
-    validation_acc_mean = np.mean(validation_acc.as_matrix(), axis = 1)
-    res_all[int(np.argmax(training_acc_mean))]
-    res_all.save(filename = file_name)
-    return res_all[int(np.argmax(validation_acc_mean))]
-    
+def StackCVRes(res):
+    cv_stack = res[0]['summary']
+    for i in xrange(1, len(res)):
+        cv_stack = cv_stack.join(res[i]['summary'], how = 'outer')
+    return cv_stack
 
-if True:
-    #max_iter = int(os.environ['max_iter'])
-    cols = ['model_id']
-    row_subsample = [0.8,1]
-    step_size = [0.8, 1.0]
-    if type(row_subsample) is list: cols.append('row_subsample')
-    if type(step_size)     is list: cols.append('step_size')
-    write("Lon Running Model for Max Iter: " + str(max_iter) + "\n")
+def AnalyzeCV(res, col_name, n_cv_vars):
+    cv_res = StackCVRes(res)
+    key_columns = cv_res.column_names()[:(1 + n_cv_vars)]
+    cv = cv_res.groupby(key_columns, 
+            operations = {'mean_' + col_name : agg.MEAN(col_name), 
+                          'std_'  + col_name : agg.STD(col_name)})
+    cv = cv.sort('mean_' + col_name)
+    cv.print_rows(len(cv))
+    return cv
+
+def main(config):
+    max_iter = config.maxiter
+    row_subsample = [.8, 1.]
+    column_subsample = [.5, 1.]
+    step_size = [.1, .2, .5, 1.]
+    max_depth = [6,8]
+    
+    write("Running Model for Max Iter: " + str(max_iter) + "\n")
     X = gl.SFrame.read_csv('../Data/train.csv'); del X['id']
     y = np.array(X['target']); res = []; fold = 1
     
     for train_bool, valid_bool in GetKFold(y):
         time_before = time.time()
         job = gl.model_parameter_search(gl.boosted_trees_classifier.create, 
-	        training_set = X[train_bool], target = 'target', 
-            validation_set = X[valid_bool], evaluator = EvaluateLogLoss, 
-	    row_subsample = row_subsample,
-            max_iterations = max_iter,
-            step_size = step_size,
+	    training_set     = X[train_bool], target = 'target', 
+            validation_set   = X[valid_bool], evaluator = EvaluateLogLoss, 
+	    row_subsample    = row_subsample,
+            column_subsample = column_subsample,
+            max_depth        = max_depth,
+            max_iterations   = max_iter,
+            step_size        = step_size
             )
         job_result = job.get_results()
         print job_result
@@ -140,24 +124,13 @@ if True:
                 str(time.time() - time_before) + "\n")
         fold += 1
         res.append(job_result)
-    print AnalyzeCV(res, "GBM_CV1"+str(max_iter) + ".csv", 
-            cols)
+    cv =  AnalyzeCV(res, "valid_logloss",4)
+    cv.save("CV_GL_" + str(max_iter) + ".csv")
 
-"""
-yh = model.predict(Xvalid)
-print gl.evaluation.accuracy(Xvalid['target'], yh)
-yhat = model.predict_topk(Xvalid, output_type = 'probability', k = 9)
-yhat['id'] = yhat['id'].astype(int)
-yhat = yhat.unstack(['class', 'probability'], 'probs').unpack('probs')
-yhat = yhat.sort('id')
-del yhat['id']
-yhat = yhat.to_dataframe().as_matrix()
-print gridLogLoss(y, yhat)
-
-dl = gl.deeplearning.create(Xtrain, target = 'target', 
-	                    network_type = 'perceptrons')
-dl.layers[0].num_hidden_units = 40
-nn = gl.neuralnet_classifier.create(Xtrain, target = 'target', 
-	max_iterations = 200, network = dl, l2_regularization = 0.005,
-	momentum = 0.5)
-"""
+if __name__ == '__main__':
+   parser = argparse.ArgumentParser(description = "Parameters for the script.")
+   parser.add_argument('-m', "--maxiter", 
+                        help = "Max Iteration Parameter", type = int) 
+   config = parser.parse_args()
+   max_iter =  config.maxiter
+   main(config)
