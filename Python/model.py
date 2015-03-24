@@ -16,7 +16,6 @@ from sklearn.ensemble       import GradientBoostingClassifier
 from sklearn.linear_model   import SGDClassifier, LogisticRegression
 from sklearn.ensemble       import ExtraTreesClassifier
 from sklearn.naive_bayes    import MultinomialNB
-from sklearn.naive_bayes    import GaussianNB
 
 from sklearn.metrics        import accuracy_score, log_loss, make_scorer
 from sklearn.grid_search    import GridSearchCV
@@ -26,8 +25,8 @@ sys.path.insert(0, '../Library/MLP/')
 from autoencoder            import *
 from multilayer_perceptron  import *
 
-def LoadData():
-    write("Loading Data...\n")
+def LoadData2():
+    Write("Loading Data...\n")
     data = np.load("../Data/Data.npz")
     global train; train = data['train']
     global valid; valid = data['valid']
@@ -38,35 +37,35 @@ def LoadData():
 def runModel(model, metric, X, y, train, valid, **kwargs):
     time_before = time.time()
     md = model(**kwargs)
-    write("Start Training " + str(model).split(" ")[-1].split(".")[-1][:-2] + \
+    Write("Start Training " + str(model).split(" ")[-1].split(".")[-1][:-2] + \
           "\n" + str(kwargs) + "\n")
     md.fit(X[train], y[train])
-    write("Finish Training, Fit Valid Data\n")
+    Write("Finish Training, Fit Valid Data\n")
     if metric == accuracy_score:
         yhat = md.predict(X[valid])
     else:
         yhat = md.predict_proba(X[valid])
     metric_res = metric(y[valid], yhat)
-    write(str(metric) + " : " + str(acc) + "\n")
+    Write(str(metric) + " : " + str(acc) + "\n")
     running_time = time.time() - time_before
-    write("Running time: " + str(running_time) + "\n\n\n")
+    Write("Running time: " + str(running_time) + "\n\n\n")
     return acc
 
 def experiment():
     rfmConf = dict(model = ExtraTreesClassifier,     X = X, y = y,
-                  metric = logLossAdjGrid, train = train, valid = valid,
+                  metric = LogLossAdjGrid, train = train, valid = valid,
             n_estimators = 1000, n_jobs = 10, verbose = 2,
                criterion = 'gini', max_features = 80)
 
 
 def gridSearch(model, scorer, params, X, y, n_jobs):
-    write("Grid Searching: " + str(model) +
+    Write("Grid Searching: " + str(model) +
           " with scorer: " + str(scorer) + "\n")
-    write("\nParameters searched: " + str(params) + "\n")
+    Write("\nParameters searched: " + str(params) + "\n")
     grid   = GridSearchCV(model, params, scorer, cv = 5, n_jobs = n_jobs, 
                           verbose = 2)
     grid.fit(X, y)
-    write("Best Score: " + str(grid.best_score_)  + " by " + 
+    Write("Best Score: " + str(grid.best_score_)  + " by " + 
                            str(grid.best_params_) + " in " + 
                            str(grid.best_estimator_) + "\n")
     return grid    
@@ -78,7 +77,7 @@ def mainGrid(X, to_run = ["svm"]):
                          needs_proba = True) 
     acc_scorer = make_scorer(accuracy_score, greater_is_better = True,
                          needs_proba = False)
-    log_sc_adj = make_scorer(logLossAdjGrid, greater_is_better = False, 
+    log_sc_adj = make_scorer(LogLossAdjGrid, greater_is_better = False, 
                          needs_proba = True)
     
     ### 0. Feature Engineer
@@ -144,7 +143,7 @@ def mainGrid(X, to_run = ["svm"]):
     if "nb" in to_run:
         global nbGrid
         model   = GaussianNB()
-        params  = dict(alpha = getGrid(0.001, 10))
+        params  = dict(alpha = GetGrid(0.001, 10))
         params  = dict()
         nbGrid  = gridSearch(model, log_sc_adj, params, X, y, n_jobs = nCores)
 
@@ -153,19 +152,18 @@ def mainGrid(X, to_run = ["svm"]):
         model   = MultilayerPerceptronClassifier(max_iter = 400, 
                 verbose = False, hidden_layer_sizes = 100, 
                 alpha = 1e-5, learning_rate = 'invscaling')
-        params  = dict(alpha = .001*getGrid(.001, 10),
+        params  = dict(alpha = GetGrid(.001, 10),
                        hidden_layer_sizes = [20, 40, 80, 160, 320],
                        activation = ['relu', 'logistic'])
         nnGrid  = gridSearch(model, log_sc_adj, params, X, y, n_jobs = 1)
 if __name__ == "__main__":
     try: X
-    except NameError: LoadData()
+    except NameError: LoadData2()
     try: model = os.environ['model']
     except KeyError: model = ''
     
     nCores = int(os.environ['OMP_NUM_THREADS'])
     print nCores
     print model
-    print "max_iter 400, invscaling"
-    mainGrid(X, to_run = [model])
+    #mainGrid(X, to_run = [model])
 

@@ -103,7 +103,7 @@ def main(config):
     step_size = [.1, .2, .5, 1.]
     max_depth = [6,8]
     
-    write("Running Model for Max Iter: " + str(max_iter) + "\n")
+    Write("Running Model for Max Iter: " + str(max_iter) + "\n")
     X = gl.SFrame.read_csv('../Data/train.csv'); del X['id']
     y = np.array(X['target']); res = []; fold = 1
     
@@ -120,7 +120,7 @@ def main(config):
             )
         job_result = job.get_results()
         print job_result
-        write("Fold " + str(fold) + " Running Time: " + 
+        Write("Fold " + str(fold) + " Running Time: " + 
                 str(time.time() - time_before) + "\n")
         fold += 1
         res.append(job_result)

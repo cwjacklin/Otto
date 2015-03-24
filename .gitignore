@@ -1,4 +1,5 @@
 *.dat
+Params/
 Submission/
 Jobs/
 *.csv
