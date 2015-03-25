@@ -1,3 +1,18 @@
+"""
+Otto Challenge
+--------------
+
+This code do the randomized grid search to find best parameters. Multiple 
+models are supported. 
+
+Author: Hoang Duong <hduong@berkeley.edu>. Many lines of code are copied
+        from Paul Duan Amazon Employee Access Kaggle Winner Code.
+"""
+
+###############################################################################
+### 0. Importing 
+###############################################################################
+
 import sys
 import logging
 import itertools
@@ -5,6 +20,7 @@ import cPickle as pickle
 import json
 import ipdb
 import os
+
 from utils                  import *
 from data                   import *
 
@@ -26,8 +42,31 @@ from sklearn.grid_search    import RandomizedSearchCV
 sys.path.insert(0, '../Library/MLP/')
 from autoencoder            import *
 from multilayer_perceptron  import *
+from gl                     import BoostedTreesClassifier
 
-selected_model = os.environ['model_feat']
+###############################################################################
+### 1. Setting Things Up
+###############################################################################
+
+# selected_model = os.environ['model_feat']
+try:
+    selected_model = os.environ['model_feat']
+except KeyError:
+    selected_model = "LG_text"
+    Write("No model selected. Run Grid Search on default model\n")
+
+try:
+    job_id = os.environ['job_id']
+except KeyError:
+    job_id = "000"
+    Write("No jobid provided. Run Grid Search with default job_id")
+nCores = int(os.environ['OMP_NUM_THREADS'])
+nGrids = 30 
+
+
+SEED = int(job_id)
+N_TREES = 1000
+
 logging.basicConfig(format="[%(asctime)s] %(levelname)s\t%(message)s",
         filename="../Params/RandomizedSearchCV/%s.log" %selected_model, 
         filemode='a', level=logging.DEBUG,
@@ -40,20 +79,22 @@ console.setLevel(logging.INFO)
 logging.getLogger().addHandler(console)
 logger = logging.getLogger(__name__)
 
-N_TREES = 1000
-nCores = int(os.environ['OMP_NUM_THREADS'])
+###############################################################################
+### 2. Setting Initial Parameters
+###############################################################################
 
 INITIAL_PARAMS = {
-        'LogisticRegression':             {},
-        'RandomForestClassifier':         {'n_estimators' : N_TREES},
-        'ExtraTreesClassifier':           {'n_estimators' : N_TREES, 
+        'LogisticRegression'            : {},
+        'RandomForestClassifier'        : {'n_estimators' : N_TREES},
+        'ExtraTreesClassifier'          : {'n_estimators' : N_TREES, 
                                            'n_jobs' : nCores},
-        'SGDClassifier':                  {'penalty' : 'elasticnet'},
-        'AdaBoostClassifier':             {},
-        'SVC':                            {'probability' : True},
-        'GradientBoostingClassifier':     {},
+        'SGDClassifier'                 : {'penalty' : 'elasticnet'},
+        'AdaBoostClassifier'            : {},
+        'SVC'                           : {'probability' : True},
+        'GradientBoostingClassifier'    : {},
         'MultilayerPerceptronClassifier': {'activation' : 'relu'},
-        'MultinomialNB':                  {}
+        'MultinomialNB'                 : {},
+        'BoostedTreesClassifier'        : {'verbose' : True}
         }
 
 PARAM_GRID = {
@@ -98,28 +139,42 @@ PARAM_GRID = {
             'hidden_layer_sizes' : [40, 80, 160, 320, 640],
             'alpha'         : GetGrid(1e-3, 10, mode = "mul", scale = 2 ),
             },
-        'MultinomialNB':                 {
+        'MultinomialNB':                  {
             'alpha'         : [.1, .2, .5, 1.]
+            },
+        'BoostedTreesClassifier':         {
+            'max_iterations': np.arange(100,401),
+            'step_size'     : np.logspace(-5, 0, 6, base = 2),
+            'max_depth'     : np.arange(2,15),
+            'row_subsample' : [.5, .6, .7, .8, .9, 1.],
+          'column_subsample': [.5, .6, .7, .8, .9, 1.],
+          'min_child_weight': np.logspace(-10,5,16,base = 2),
+        'min_loss_reduction': np.arange(20)
             }
         }
+
+###############################################################################
+### 2. Function to Randomized Grid Search CV for best parameters
+###############################################################################
 
 LogLoss = make_scorer(LogLossAdjGrid, greater_is_better = False, 
                       needs_proba = True)
 Accuracy = make_scorer(accuracy_score, greater_is_better = True, 
                       needs_proba = False)
 
-def FindParams(model, feature_set, y, subsample = None, grid_search = True):
+def FindParams(model, feature_set, y, subsample = None, 
+                grid_search = True):
     """
     Return parameter set for the model, either found through cross validation
     grid search, or load from file
     """
-    # ipdb.set_trace()
     model_name = model.__class__.__name__
     if model.__class__.__name__ == 'SGDClassifier':
         scorer = Accuracy # SGD can not predict probability
     else:
         scorer = LogLoss
-    if model.__class__.__name__ == 'ExtraTreesClassifier':
+    if model.__class__.__name__ in ['ExtraTreesClassifier', 
+                                  'BoostedTreesClassifier']:
         nCores = 1
     params = INITIAL_PARAMS.get(model_name, {})
     model.set_params(**params)
@@ -127,6 +182,8 @@ def FindParams(model, feature_set, y, subsample = None, grid_search = True):
     model_feat = stringify(model, feature_set)
     logger.info("Start RandomizedSearchCV paramaeter for %s",
                 model_feat)
+    logger.info("nCores: %d, nGrid: %d, job_id: %s" % 
+                (nCores, nGrids, job_id))
     try:
         with open('../Params/RandomizedSearchCV/%s_saved_params.json' 
                   % model_feat) as f:
@@ -136,18 +193,25 @@ def FindParams(model, feature_set, y, subsample = None, grid_search = True):
 
 
     if (grid_search and stringify(model, feature_set) not in saved_params):
+        ### Fit Model
         X, _ = GetDataset(feature_set)
         clf = RandomizedSearchCV(model, PARAM_GRID[model_name], 
                 scoring = scorer, cv = 5, n_iter = nGrids,
-                n_jobs = nCores, random_state = 314, verbose = 2) 
+                n_jobs = nCores, random_state = SEED, verbose = 2) 
         clf.fit(X, y)
+        
+        ### Reporting
         logger.info("Found params (%s > %.4f): %s" %(
                     stringify(model, feature_set),
                     clf.best_score_, clf.best_params_))
+        for fit_model in clf.grid_scores_:
+            Write(str(fit_model))
+        
+        ### Save Parameters
         params.update(clf.best_params_)
         saved_params[stringify(model, feature_set)] = params
-        with open('../Params/RandomizedSearchCV/%s_saved_params.json' 
-                  % model_feat, 'w') as f:
+        with open('../Params/RandomizedSearchCV/%s_%s_saved_params.json' 
+                  % (model_feat, job_id), 'w') as f:
             json.dump(saved_params, f, indent = 4, separators = (',', ': '),
                       ensure_ascii = True, sort_keys = True)
     else:
@@ -158,12 +222,7 @@ def FindParams(model, feature_set, y, subsample = None, grid_search = True):
     return params
 
 if __name__ == '__main__':
-    SEED = 314
-    nGrids = 50 
-    #selected_model = "LR_text"
-    #nCores = 8
     logger.info("Running Model %s, on %d cores" %(selected_model, nCores))
-    
     _, y, _ = LoadData(); del _
     model_dict = { 'LR'   : LogisticRegression,
                    'RFC'  : RandomForestClassifier,
@@ -173,11 +232,10 @@ if __name__ == '__main__':
                    'SGDC' : SGDClassifier,
                    'GBC'  : GradientBoostingClassifier,
                    'MPC'  : MultilayerPerceptronClassifier,
-                   'MNB'  : MultinomialNB
+                   'MNB'  : MultinomialNB,
+                   'BTC'  : BoostedTreesClassifier
                  }
     model_id, dataset = selected_model.split('_')
     model = model_dict[model_id]()
-    
-    if model_id != "MNB": model.set_params(random_state = SEED)
-     
+    if model_id not in ["MNB", "BTC"]: model.set_params(random_state = SEED)
     FindParams(model, dataset, y)
