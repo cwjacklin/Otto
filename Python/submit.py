@@ -1,3 +1,5 @@
+import sys
+sys.path.insert(0, '../Library/MLP/')
 from multilayer_perceptron import *
 from sklearn.neighbors import KNeighborsClassifier
 def SubmitSVM():
@@ -7,21 +9,20 @@ def SubmitSVM():
               probability = True, random_state = None, 
               shrinking = True, tol = 0.001, verbose = True)
     svm.fit(X,y)
-    yhat = svm.predict_proba(X)
-    yhattest = svm.predict_proba(Xtest)
-    getSubmission("svm.csv", yhat)
+    yhat = svm.predict_proba(Xtest)
+    GetSubmission("svm.csv", yhat)
 
 def SubmitNN(X, Xtest):
     X, Xtest = TextTransform(X, Xtest)
     epsilon = 2e-5
-    write(str('epsilon'))
+    Write(str('epsilon'))
     nn = MultilayerPerceptronClassifier(
             hidden_layer_sizes = 320, max_iter = 200, 
             alpha = 6.4e-5, activation = 'relu', verbose = True)
     nn.fit(X, y)
-    write(str(nn.score(X, y)))
+    Write(str(nn.score(X, y)))
     yhat = nn.predict_proba(Xtest)
-    getSubmission("nn.csv", yhat, eps = epsilon)
+    GetSubmission("nn.csv", yhat, eps = epsilon)
 
 
 def SubmitkNN(X, Xtest):
@@ -30,8 +31,31 @@ def SubmitkNN(X, Xtest):
     knn = KNeighborsClassifier(n_neighbors = 200, weights = 'uniform', 
             p = 1)
     knn.fit(X, y)
-    write(str(knn.score(X, y)))
+    Write(str(knn.score(X, y)))
     yhat = knn.predict_proba(Xtest)
-    getSubmission("knn.csv", yhat, eps = epsilon)
+    GetSubmission("knn.csv", yhat, eps = epsilon)
 
-SubmitkNN(X, Xtest)
+if __name__ == "_main__":
+    execfile("model.py")
+    X, Xtest = TextTransform(X, Xtest)
+    svm = SVC(C = 4., cache_size = 200, class_weight = None, coef0 = 0.0, 
+              degree = 3, gamma = 2.0, kernel = 'rbf', max_iter = -1, 
+              probability = True, random_state = None, 
+              shrinking = True, tol = 0.001, verbose = True)
+    svm.fit(X[train],y[train])
+    yhat = svm.predict_proba(X[valid])
+    #yhattest = svm.predict_proba(Xtest)
+
+if __name__ == "__main__":
+    execfile("model.py")
+    X, Xtest = TextTransform(X, Xtest)
+    Write(str(np.shape(X)))
+    epsilon = 2e-5
+    Write(str('epsilon'))
+    nn = MultilayerPerceptronClassifier(
+            hidden_layer_sizes = 320, max_iter = 200, 
+            alpha = 6.4e-5, activation = 'relu', verbose = True)
+    nn.fit(X[train], y[train])
+    Write(str(nn.score(X[train], y[train])))
+    yhat = nn.predict_proba(X[valid])
+

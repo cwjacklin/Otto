@@ -42,6 +42,33 @@ def FinalModel():
 
     makeSubmission("GBM_200iter_Subsample0.9_stepsize0.25", Xtest, model)
 
+if True:
+    data = np.load("../Data/Data.npz")
+    train = data['train']
+    valid = data['valid']
+    X = data['X']
+    X = gl.SFrame(pd.DataFrame(X))
+    X['target'] = data['y']
+    n = len(X)
+    train_bool = np.array(np.zeros(n), dtype = bool)
+    train_bool[train] = True
+    valid_bool = np.array(np.zeros(n), dtype = bool)
+    valid_bool[valid] = True
+    train = gl.SArray(train_bool)
+    valid = gl.SArray(valid_bool)
+    
+    model = gl.boosted_trees_classifier.create(
+                X[train], target = 'target', 
+                max_iterations     = 250,
+                max_depth          = 10,
+                min_child_weight   = 4,
+                row_subsample      = .9,
+                min_loss_reduction = 1,
+                column_subsample = .8,
+                validation_set = None)
+    makeSubmission("yhat_gbm2.csv", X[valid], model)
+
+
 def MulticlassLogLoss(model, test):
     preds = model.predict_topk(test, output_type='probability', k=9)
     preds = preds.unstack(['class', 'probability'], 'probs').unpack('probs', '')
@@ -127,10 +154,10 @@ def main(config):
     cv =  AnalyzeCV(res, "valid_logloss",4)
     cv.save("CV_GL_" + str(max_iter) + ".csv")
 
-if __name__ == '__main__':
+if __name__ == '_main__':
    parser = argparse.ArgumentParser(description = "Parameters for the script.")
    parser.add_argument('-m', "--maxiter", 
                         help = "Max Iteration Parameter", type = int) 
    config = parser.parse_args()
    max_iter =  config.maxiter
-   main(config)
+   #main(config)

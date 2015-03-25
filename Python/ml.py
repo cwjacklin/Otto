@@ -27,6 +27,17 @@ sys.path.insert(0, '../Library/MLP/')
 from autoencoder            import *
 from multilayer_perceptron  import *
 
+selected_model = os.environ['model_feat']
+logging.basicConfig(format="[%(asctime)s] %(levelname)s\t%(message)s",
+        filename="../Params/RandomizedSearchCV/%s.log" %selected_model, 
+        filemode='a', level=logging.DEBUG,
+        datefmt='%m/%d/%y %H:%M:%S')
+formatter = logging.Formatter("[%(asctime)s] %(levelname)s\t%(message)s",
+        datefmt='%m/%d/%y %H:%M:%S')
+console = logging.StreamHandler()
+console.setFormatter(formatter)
+console.setLevel(logging.INFO)
+logging.getLogger().addHandler(console)
 logger = logging.getLogger(__name__)
 
 N_TREES = 1000
@@ -45,7 +56,7 @@ INITIAL_PARAMS = {
 
 PARAM_GRID = {
         'LogisticRegression':             { 
-            'C'             : GetGrid(   1,  4, mode = "mul", scale = 2 ), 
+            'C'             : np.logspace(-4, 4, num = 9, base = 2.), 
             'penalty'       : ['l1', 'l2'],
             'class_weight'  : ['auto']
             },
@@ -110,8 +121,11 @@ def FindParams(model, feature_set, y, subsample = None, grid_search = True):
     model.set_params(**params)
     y = y if subsample is None else y[subsample]
     model_feat = stringify(model, feature_set)
+    logger.info("Start RandomizedSearchCV paramaeter for %s",
+                model_feat)
     try:
-        with open('../Params/%s_saved_params.json' % model_feat) as f:
+        with open('../Params/RandomizedSearchCV/%s_saved_params.json' 
+                  % model_feat) as f:
             saved_params = json.load(f)
     except IOError:
         saved_params = {}
@@ -119,29 +133,33 @@ def FindParams(model, feature_set, y, subsample = None, grid_search = True):
 
     if (grid_search and stringify(model, feature_set) not in saved_params):
         X, _ = GetDataset(feature_set)
-        clf = GridSearchCV(model, PARAM_GRID[model_name], 
-                scoring = scorer, cv = 5, n_jobs = nCores, verbose = 2) 
+        clf = RandomizedSearchCV(model, PARAM_GRID[model_name], 
+                scoring = scorer, cv = 5, n_iter = nGrids,
+                n_jobs = nCores, verbose = 2) 
         clf.fit(X, y)
-        Write("Found params (%s > %.4f): %s\n" %(
+        logger.info("Found params (%s > %.4f): %s" %(
                     stringify(model, feature_set),
                     clf.best_score_, clf.best_params_))
         params.update(clf.best_params_)
         saved_params[stringify(model, feature_set)] = params
-        with open('../Params/%s_saved_params.json' % model_feat, 'w') as f:
+        with open('../Params/RandomizedSearchCV/%s_saved_params.json' 
+                  % model_feat, 'w') as f:
             json.dump(saved_params, f, indent = 4, separators = (',', ': '),
                       ensure_ascii = True, sort_keys = True)
     else:
         params.update(saved_params.get(stringify(model, feature_set), {}))
         if grid_search:
-            Write("Using params %s: %s" % (model_feat, params))
+            logger.info("Using params %s: %s" % (model_feat, params))
 
     return params
 
 if __name__ == '__main__':
     SEED = 314
-    selected_model = os.environ['model_feat']
     nCores = int(os.environ['OMP_NUM_THREADS'])
-    Write("Running Model %s, on %d cores\n" %(selected_model, nCores))
+    nGrids = int(os.environ['nGrids']) 
+    #selected_model = "LR_text"
+    #nCores = 8
+    logger.info("Running Model %s, on %d cores" %(selected_model, nCores))
     
     _, y, _ = LoadData(); del _
     model_dict = { 'LR'   : LogisticRegression,

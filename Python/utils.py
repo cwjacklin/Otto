@@ -40,32 +40,20 @@ def LogLossAdj(y, yhat, inflate = 0.001):
     return log_loss(y, (yhat + inflate)/(1 + 9*inflate))
 
 def LogLossAdjGrid(y, yhat):
-    grid = GetGrid(0.0001, 10)
+    grid = GetGrid(1e-7, 8, scale = 10.)
     res = [log_loss(y, yhat, eps = inflate) for inflate in grid]
     Write("Optimal Logloss: %.4f, for Eps: %.4g \n" % (
         min(res), grid[np.argmin(res)]))
     return np.min(res)
 
-def GetSubmission(file_name, yhat, eps):
+def GetSubmission(file_name, yhat, eps = None):
     submission = pd.read_csv('../Data/sampleSubmission.csv')
-    yhat = np.maximum(eps, yhat)
-    yhat = np.minimum(1 - eps, yhat)
+    if eps is not None:
+        yhat = np.maximum(eps, yhat)
+        yhat = np.minimum(1 - eps, yhat)
     yhat = pd.DataFrame(yhat, index = submission.id.values,
             columns = submission.columns[1:])
     assert (len(yhat) == len(submission))
-    yhat.to_csv(file_name, index_label = 'id')
-
-def GetSubmission2(file_name, model, X, y, Xtest, **kwargs):
-    time_before = time.time()
-    md = model(**kwargs)
-    Write("Start Training " + str(model).split(" ")[-1].split(".")[-1][:-2] + \
-                      "\n" + str(kwargs) + "\n")
-    md.fit(X, y)
-    yhat = md.predict_proba(Xtest)
-    yhat = (yhat + 0.001)/1.009
-    submission = pd.read_csv('../Data/sampleSubmission.csv')
-    yhat = pd.DataFrame(yhat, index = submission.id.values,
-                                    columns = submission.columns[1:])
     yhat.to_csv(file_name, index_label = 'id')
 
 def TransformLabel(y):
