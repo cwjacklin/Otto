@@ -38,6 +38,7 @@ from sklearn.naive_bayes    import GaussianNB
 from sklearn.metrics        import accuracy_score, log_loss, make_scorer
 from sklearn.grid_search    import GridSearchCV
 from sklearn.grid_search    import RandomizedSearchCV
+from sklearn.neighbors      import KNeighborsClassifier
 
 sys.path.insert(0, '../Library/MLP/')
 from autoencoder            import *
@@ -61,7 +62,7 @@ except KeyError:
     job_id = "000"
     Write("No jobid provided. Run Grid Search with default job_id")
 nCores = int(os.environ['OMP_NUM_THREADS'])
-nGrids = 30 
+nGrids = 50 
 
 
 SEED = int(job_id)
@@ -94,7 +95,13 @@ INITIAL_PARAMS = {
         'GradientBoostingClassifier'    : {},
         'MultilayerPerceptronClassifier': {'activation' : 'relu'},
         'MultinomialNB'                 : {},
-        'BoostedTreesClassifier'        : {'verbose' : True}
+        'BoostedTreesClassifier'        : {'verbose' : True},
+        'KNeighborsClassifier'          : {
+            'weights'       : 'uniform',
+            'leaf_size'     : 1000,
+            'metric'        : 'minkowski'
+            }
+
         }
 
 PARAM_GRID = {
@@ -150,6 +157,12 @@ PARAM_GRID = {
           'column_subsample': [.5, .6, .7, .8, .9, 1.],
           'min_child_weight': np.logspace(-10,5,16,base = 2),
         'min_loss_reduction': np.arange(20)
+            },
+        'KNeighborsClassifier':            {
+            'n_neighbors'   : np.arange(5,500),
+            'p'             : [1, 2],
+            'metric'        : ['minkowski', 'canberra', 
+                                'braycurtis']
             }
         }
 
@@ -162,7 +175,7 @@ LogLoss = make_scorer(LogLossAdjGrid, greater_is_better = False,
 Accuracy = make_scorer(accuracy_score, greater_is_better = True, 
                       needs_proba = False)
 
-def FindParams(model, feature_set, y, subsample = None, 
+def FindParams(model, feature_set, y, nCores, nGrids, subsample = None, 
                 grid_search = True):
     """
     Return parameter set for the model, either found through cross validation
@@ -233,9 +246,10 @@ if __name__ == '__main__':
                    'GBC'  : GradientBoostingClassifier,
                    'MPC'  : MultilayerPerceptronClassifier,
                    'MNB'  : MultinomialNB,
-                   'BTC'  : BoostedTreesClassifier
+                   'BTC'  : BoostedTreesClassifier,
+                   'KNC'  : KNeighborsClassifier
                  }
     model_id, dataset = selected_model.split('_')
     model = model_dict[model_id]()
-    if model_id not in ["MNB", "BTC"]: model.set_params(random_state = SEED)
-    FindParams(model, dataset, y)
+    if model_id not in ["MNB", "BTC", "KNC"]: model.set_params(random_state = SEED)
+    FindParams(model, dataset, y, nCores, nGrids)
