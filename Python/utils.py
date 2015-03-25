@@ -68,3 +68,15 @@ def stringify(model, feature_set):
     Ex: (LogisticRegression(), "basic_s") -> "LR:basic_s"
     """
     return "%s:%s" % (sub("[a-z]", '', model.__class__.__name__), feature_set)
+
+def EnsembleFromCSV(file_name, list_submission, list_coef):
+    l = []
+    ens = 0
+    for (i, submission) in enumerate(list_submission):
+        submiss = pd.read_csv(submission)
+        ens = ens + list_coef[i]*submiss
+
+    ens.id = submiss.id
+    ens.to_csv(file_name, index = False)
+
+

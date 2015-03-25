@@ -41,11 +41,13 @@ logging.getLogger().addHandler(console)
 logger = logging.getLogger(__name__)
 
 N_TREES = 1000
+nCores = int(os.environ['OMP_NUM_THREADS'])
 
 INITIAL_PARAMS = {
         'LogisticRegression':             {},
         'RandomForestClassifier':         {'n_estimators' : N_TREES},
-        'ExtraTreesClassifier':           {'n_estimators' : N_TREES},
+        'ExtraTreesClassifier':           {'n_estimators' : N_TREES, 
+                                           'n_jobs' : nCores},
         'SGDClassifier':                  {'penalty' : 'elasticnet'},
         'AdaBoostClassifier':             {},
         'SVC':                            {'probability' : True},
@@ -81,8 +83,8 @@ PARAM_GRID = {
             'n_estimators'  : [50, 100, 200, 400]
             },
         'SVC':                            {
-            'C'             : GetGrid(  1,   4, mode = "mul", scale = 2 ),
-            'gamma'         : GetGrid(  1,   4, mode = "mul", scale = 2 ),
+            'C'             : np.arange(1,15),
+            'gamma'         : np.arange(1,15),
             'kernel'        : ['rbf', 'poly', 'sigmoid']
             },
         'GradientBoostingClassifier':     {
@@ -117,6 +119,8 @@ def FindParams(model, feature_set, y, subsample = None, grid_search = True):
         scorer = Accuracy # SGD can not predict probability
     else:
         scorer = LogLoss
+    if model.__class__.__name__ == 'ExtraTreesClassifier':
+        nCores = 1
     params = INITIAL_PARAMS.get(model_name, {})
     model.set_params(**params)
     y = y if subsample is None else y[subsample]
@@ -135,7 +139,7 @@ def FindParams(model, feature_set, y, subsample = None, grid_search = True):
         X, _ = GetDataset(feature_set)
         clf = RandomizedSearchCV(model, PARAM_GRID[model_name], 
                 scoring = scorer, cv = 5, n_iter = nGrids,
-                n_jobs = nCores, verbose = 2) 
+                n_jobs = nCores, random_state = 314, verbose = 2) 
         clf.fit(X, y)
         logger.info("Found params (%s > %.4f): %s" %(
                     stringify(model, feature_set),
@@ -155,8 +159,7 @@ def FindParams(model, feature_set, y, subsample = None, grid_search = True):
 
 if __name__ == '__main__':
     SEED = 314
-    nCores = int(os.environ['OMP_NUM_THREADS'])
-    nGrids = int(os.environ['nGrids']) 
+    nGrids = 50 
     #selected_model = "LR_text"
     #nCores = 8
     logger.info("Running Model %s, on %d cores" %(selected_model, nCores))
@@ -178,4 +181,3 @@ if __name__ == '__main__':
     if model_id != "MNB": model.set_params(random_state = SEED)
      
     FindParams(model, dataset, y)
-    

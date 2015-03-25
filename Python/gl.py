@@ -42,7 +42,7 @@ def FinalModel():
 
     makeSubmission("GBM_200iter_Subsample0.9_stepsize0.25", Xtest, model)
 
-if True:
+if False:
     data = np.load("../Data/Data.npz")
     train = data['train']
     valid = data['valid']
@@ -81,17 +81,6 @@ def MulticlassLogLoss(model, test):
         neg_log_loss += - math.log(row[label])
     return  neg_log_loss / preds.num_rows()
 
-def MulticlassLogLoss2(model, test):
-    preds = model.predict_topk(test, output_type='probability', k=9)
-    preds = preds.unstack(['class', 'probability'], 'probs').unpack('probs', '')
-    preds['id'] = preds['id'].astype(int) + 1
-    preds = preds.sort('id')
-    del preds['id']
-    preds = preds.to_dataframe().as_matrix()
-    y = np.array(test['target'])
-    y = TransformLabel(y)
-    return logLossAdjGrid(y, preds) 
-
 
 def EvaluateLogLoss(model, train, valid):
     return {'train_logloss' : MulticlassLogLoss(model, train),
@@ -126,9 +115,9 @@ def AnalyzeCV(res, col_name, n_cv_vars):
 def main(config):
     max_iter = config.maxiter
     row_subsample = [.8, 1.]
-    column_subsample = [.5, 1.]
-    step_size = [.1, .2, .5, 1.]
-    max_depth = [6,8]
+    column_subsample = [1.]
+    step_size = [.02, .05, .1, .2, .5, 1.]
+    max_depth = [6, 8, 10, 12]
     
     Write("Running Model for Max Iter: " + str(max_iter) + "\n")
     X = gl.SFrame.read_csv('../Data/train.csv'); del X['id']
@@ -152,12 +141,12 @@ def main(config):
         fold += 1
         res.append(job_result)
     cv =  AnalyzeCV(res, "valid_logloss",4)
-    cv.save("CV_GL_" + str(max_iter) + ".csv")
+    cv.save("../Jobs/GL/CV_GL_" + str(max_iter) + ".csv")
 
-if __name__ == '_main__':
+if __name__ == '__main__':
    parser = argparse.ArgumentParser(description = "Parameters for the script.")
    parser.add_argument('-m', "--maxiter", 
                         help = "Max Iteration Parameter", type = int) 
    config = parser.parse_args()
    max_iter =  config.maxiter
-   #main(config)
+   main(config)
