@@ -49,14 +49,24 @@ def SaveDataset(filename, X, Xtest):
             logger.info("> saving %s to disk", filename)
             np.savez_compressed("../Data/" + filename, X = X, Xtest = Xtest)
 
-def GetDataset(feature_set = 'original'):
+def GetDataset(feature_set = 'original', train = None, valid = None):
+    logger.info("Loading Feature Set %s", feature_set)
     try:
         with open("../Data/%s.npz" % feature_set, 'r') as f:
             data = np.load(f)
-            X, Xtest = data['X'], data['Xtest']
+            if train is None:
+                X, Xtest = data['X'], data['Xtest']
+            else:
+                X = data['X']
+                if valid is None:
+                    valid = [i for i in xrange(X.shape[0]) if i not in train]
+                Xtest = X[valid, :]
+                X = X[train, :]
     except IOError:
             logging.warining("Could not find feature set %s", feature_set)
             return False
+    logger.info("X shape: (%d, %d). Xtest shape: (%d, %d)", np.shape(X)[0],
+            np.shape(X)[1], np.shape(Xtest)[0], np.shape(Xtest)[1])
     return X, Xtest
 
 def CreateDataset(X, Xtest, y, datasets = []):

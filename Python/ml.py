@@ -21,29 +21,29 @@ import json
 import ipdb
 import os
 
-from utils                  import *
-from data                   import *
+from utils                      import *
+from data                       import LoadData, GetDataset
 
-from sklearn.neural_network import BernoulliRBM
-from sklearn.ensemble       import RandomForestClassifier
-from sklearn.svm            import SVC
-from sklearn.qda            import QDA
-from sklearn.lda            import LDA
-from sklearn.ensemble       import AdaBoostClassifier
-from sklearn.ensemble       import GradientBoostingClassifier
-from sklearn.linear_model   import SGDClassifier, LogisticRegression
-from sklearn.ensemble       import ExtraTreesClassifier
-from sklearn.naive_bayes    import MultinomialNB
-from sklearn.naive_bayes    import GaussianNB
-from sklearn.metrics        import accuracy_score, log_loss, make_scorer
-from sklearn.grid_search    import GridSearchCV
-from sklearn.grid_search    import RandomizedSearchCV
-from sklearn.neighbors      import KNeighborsClassifier
+from sklearn.neural_network     import BernoulliRBM
+from sklearn.ensemble           import RandomForestClassifier
+from sklearn.svm                import SVC
+from sklearn.qda                import QDA
+from sklearn.lda                import LDA
+from sklearn.ensemble           import AdaBoostClassifier
+from sklearn.ensemble           import GradientBoostingClassifier
+from sklearn.linear_model       import SGDClassifier, LogisticRegression
+from sklearn.ensemble           import ExtraTreesClassifier
+from sklearn.naive_bayes        import MultinomialNB
+from sklearn.naive_bayes        import GaussianNB
+from sklearn.metrics            import accuracy_score, log_loss, make_scorer
+from sklearn.grid_search        import GridSearchCV
+from sklearn.grid_search        import RandomizedSearchCV
+from sklearn.neighbors          import KNeighborsClassifier
+from sklearn.cross_validation   import StratifiedKFold
 
 sys.path.insert(0, '../Library/MLP/')
-from autoencoder            import *
-from multilayer_perceptron  import *
-from gl                     import BoostedTreesClassifier
+from multilayer_perceptron  import MultilayerPerceptronClassifier
+#from gl                     import BoostedTreesClassifier
 
 ###############################################################################
 ### 1. Setting Things Up
@@ -53,14 +53,14 @@ from gl                     import BoostedTreesClassifier
 try:
     selected_model = os.environ['model_feat']
 except KeyError:
-    selected_model = "LG_text"
-    Write("No model selected. Run Grid Search on default model\n")
+    selected_model = "LR_log"
+    Write("No model selected. Use default Logistic model\n")
 
 try:
     job_id = os.environ['job_id']
 except KeyError:
     job_id = "000"
-    Write("No jobid provided. Run Grid Search with default job_id")
+    Write("No jobid provided. Use default 000 job_id\n")
 nCores = int(os.environ['OMP_NUM_THREADS'])
 nGrids = 50 
 
@@ -68,8 +68,13 @@ nGrids = 50
 SEED = int(job_id)
 N_TREES = 1000
 
+CONFIG = {}
+CONFIG['nCores'] = nCores
+CONFIG['SEED']   = SEED
+CONFIG['nGrids'] = nGrids
+
 logging.basicConfig(format="[%(asctime)s] %(levelname)s\t%(message)s",
-        filename="../Params/RandomizedSearchCV/%s.log" %selected_model, 
+        filename="history.log", 
         filemode='a', level=logging.DEBUG,
         datefmt='%m/%d/%y %H:%M:%S')
 formatter = logging.Formatter("[%(asctime)s] %(levelname)s\t%(message)s",
@@ -79,6 +84,7 @@ console.setFormatter(formatter)
 console.setLevel(logging.INFO)
 logging.getLogger().addHandler(console)
 logger = logging.getLogger(__name__)
+
 
 ###############################################################################
 ### 2. Setting Initial Parameters
@@ -150,9 +156,9 @@ PARAM_GRID = {
             'alpha'         : [.1, .2, .5, 1.]
             },
         'BoostedTreesClassifier':         {
-            'max_iterations': np.arange(100,401),
+            'max_iterations': np.arange(150,501),
             'step_size'     : np.logspace(-5, 0, 6, base = 2),
-            'max_depth'     : np.arange(2,15),
+            'max_depth'     : np.arange(6,25),
             'row_subsample' : [.5, .6, .7, .8, .9, 1.],
           'column_subsample': [.5, .6, .7, .8, .9, 1.],
           'min_child_weight': np.logspace(-10,5,16,base = 2),
@@ -175,12 +181,13 @@ LogLoss = make_scorer(LogLossAdjGrid, greater_is_better = False,
 Accuracy = make_scorer(accuracy_score, greater_is_better = True, 
                       needs_proba = False)
 
-def FindParams(model, feature_set, y, nCores, nGrids, subsample = None, 
+def FindParams(model, feature_set, y, CONFIG, subsample = None, 
                 grid_search = True):
     """
     Return parameter set for the model, either found through cross validation
     grid search, or load from file
     """
+    ### Setting configurations
     model_name = model.__class__.__name__
     if model.__class__.__name__ == 'SGDClassifier':
         scorer = Accuracy # SGD can not predict probability
@@ -189,6 +196,9 @@ def FindParams(model, feature_set, y, nCores, nGrids, subsample = None,
     if model.__class__.__name__ in ['ExtraTreesClassifier', 
                                   'BoostedTreesClassifier']:
         nCores = 1
+    else:
+        nCores = CONFIG['nCores']
+    ### Setting parameters
     params = INITIAL_PARAMS.get(model_name, {})
     model.set_params(**params)
     y = y if subsample is None else y[subsample]
@@ -209,8 +219,8 @@ def FindParams(model, feature_set, y, nCores, nGrids, subsample = None,
         ### Fit Model
         X, _ = GetDataset(feature_set)
         clf = RandomizedSearchCV(model, PARAM_GRID[model_name], 
-                scoring = scorer, cv = 5, n_iter = nGrids,
-                n_jobs = nCores, random_state = SEED, verbose = 2) 
+                scoring = scorer, cv = 5, n_iter = CONFIG['nGrids'],
+                n_jobs = nCores, random_state = CONFIG['SEED'], verbose = 2) 
         clf.fit(X, y)
         
         ### Reporting
@@ -218,7 +228,7 @@ def FindParams(model, feature_set, y, nCores, nGrids, subsample = None,
                     stringify(model, feature_set),
                     clf.best_score_, clf.best_params_))
         for fit_model in clf.grid_scores_:
-            Write(str(fit_model))
+            Write(str(fit_model) + "\n")
         
         ### Save Parameters
         params.update(clf.best_params_)
@@ -234,8 +244,78 @@ def FindParams(model, feature_set, y, nCores, nGrids, subsample = None,
 
     return params
 
+def GetPrediction(model, feature_set, y, train = None, valid = None, 
+                    preds = "proba", verbose = 1):
+    model_name = model.__class__.__name__
+    params = INITIAL_PARAMS.get(model_name, {})
+    model.set_params(**params)
+    y = y if train is None else y[train]
+    model_feat = stringify(model, feature_set)
+    try:
+        with open('../Params/Best/%s_saved_params.json' % model_feat) as f:
+            saved_params = json.load(f).get(model_feat, {})
+    except IOError:
+        logging.warning("Could not find best parameter for %s with feature \
+                set %s", model_name, feature_set)
+        saved_params = {}
+        return False
+    
+    for key in saved_params.keys():
+        logger.info("%s: %s", key, saved_params[key])
+        ### Fixing Unicode String issues
+        if type(saved_params[key]) is unicode:
+            saved_params[key] = str(saved_params[key])
+
+    if 'verbose' in model.get_params():
+        model.set_params(verbose = verbose)
+
+    X, Xtest = GetDataset(feature_set, train, valid)
+    model.set_params(**saved_params)
+    logger.info("Fitting %s on %s feature", model_name, feature_set)
+    model.fit(X, y)
+    logger.info("Returning prediction")
+    if preds == "proba":
+        yhat = model.predict_proba(Xtest)
+    elif preds == "class":
+        yhat = model.predict(Xtest)
+    else:
+        logger.warning("preds must be either proba or class")
+        return False
+    return yhat
+
+def GetPredictionCV(model, feature_set, y, CONFIG, n_folds = 5):
+    kcv = StratifiedKFold(y, n_folds, random_state = CONFIG['SEED'])
+    res = np.empty((len(y), len(np.unique(y)))); i = 1
+    for train_idx, valid_idx in kcv:
+        logger.info("Running fold %d...", i); i += 1
+        res[valid_idx,:] = GetPrediction(model, feature_set, y, 
+                                        train = train_idx, valid = valid_idx)
+    return res
+
+def GetLevel1(y, CONFIG):
+    yhat_btc_full = np.load("yhat_btc_full.npz")['yhat']
+    logger.info("BTC Log loss: %.4f" % log_loss(y, yhat_btc_full))
+    yhat_svc_full = np.load("yhat_svc_full.npz")['yhat']
+    logger.info("SVC Log Loss: %.4f" % log_loss(y, yhat_svc_full))
+    yhat_mpc_full = np.load("yhat_mpc_full.npz")['yhat']
+    logger.info("MPC Log Loss: %.4f" % log_loss(y, yhat_mpc_full))
+    X1 = np.hstack([yhat_btc_full, yhat_svc_full, yhat_mpc_full])
+    X1 = np.log(X1/(1-X1))
+    clf = LogisticRegression(C = .1, fit_intercept = False, 
+            penalty = 'l1', random_state = CONFIG['SEED'])
+    clf.fit(X1, y)
+    
+    yhat_btc_test = np.load("yhat_btc_test.npz")['yhat']
+    yhat_svc_test = np.load("yhat_svc_test.npz")['yhat']
+    yhat_mpc_test = np.load("yhat_mpc_test.npz")['yhat']
+    X1test = np.hstack([yhat_btc_test, yhat_svc_test, yhat_mpc_test])
+    X1test = np.log(X1test/(1 - X1test))
+    yhat = clf.predict_proba(X1test)
+    return yhat
+
+    
 if __name__ == '__main__':
-    logger.info("Running Model %s, on %d cores" %(selected_model, nCores))
+    logger.info("Running SVC %s, on %d cores" %(selected_model, nCores))
     _, y, _ = LoadData(); del _
     model_dict = { 'LR'   : LogisticRegression,
                    'RFC'  : RandomForestClassifier,
@@ -246,10 +326,28 @@ if __name__ == '__main__':
                    'GBC'  : GradientBoostingClassifier,
                    'MPC'  : MultilayerPerceptronClassifier,
                    'MNB'  : MultinomialNB,
-                   'BTC'  : BoostedTreesClassifier,
+                   #'BTC'  : BoostedTreesClassifier,
                    'KNC'  : KNeighborsClassifier
                  }
+    if selected_model[:3] == "BTC": 
+        from gl import BoostedTreesClassifier
+        model_dict['BTC'] = BoostedTreesClassifier
+
     model_id, dataset = selected_model.split('_')
     model = model_dict[model_id]()
-    if model_id not in ["MNB", "BTC", "KNC"]: model.set_params(random_state = SEED)
-    FindParams(model, dataset, y, nCores, nGrids)
+    if model_id not in ["MNB", "BTC", "KNC"]: 
+        model.set_params(random_state = SEED)
+    logger.debug('\n' + '='*50)
+    # FindParams(model, dataset, y, CONFIG)
+    import multiprocessing as mp
+
+    kcv = StratifiedKFold(y, 5, random_state = CONFIG['SEED'])
+    idx = []
+    for train_idx, valid_idx in kcv:
+        idx.append((train_idx, valid_idx))
+
+    def g(t):
+        return GetPrediction(SVC(), "text", y, train  = t[0], valid = t[1])
+
+    #pool = mp.Pool(processes = 5)
+    #results = pool.map(g, idx)
