@@ -53,16 +53,17 @@ from multilayer_perceptron  import MultilayerPerceptronClassifier
 try:
     selected_model = os.environ['model_feat']
 except KeyError:
-    selected_model = "LR_log"
+    selected_model = "MPC_log"
     Write("No model selected. Use default Logistic model\n")
 
 try:
     job_id = os.environ['job_id']
 except KeyError:
-    job_id = "000"
-    Write("No jobid provided. Use default 000 job_id\n")
+    job_id = "003"
+    Write("No jobid provided. Use default %s\n" % job_id)
 nCores = int(os.environ['OMP_NUM_THREADS'])
-nGrids = 50 
+nCores = 12
+nGrids = 10 
 
 
 SEED = int(job_id)
@@ -148,9 +149,11 @@ PARAM_GRID = {
             'max_features'  : GetGrid(  50,  4, mode = "add", scale = 10)
             },
         'MultilayerPerceptronClassifier': {
-            'max_iter'      : [100, 200, 300],
-            'hidden_layer_sizes' : [40, 80, 160, 320, 640],
-            'alpha'         : GetGrid(1e-3, 10, mode = "mul", scale = 2 ),
+            'max_iter'      : np.arange(20, 500),
+            'hidden_layer_sizes' : np.arange(20, 1000),
+            'alpha'         : np.logspace(-20,3,24, base = 2),
+            'learning_rate' : ['constant', 'invscaling'],
+            'learning_rate_init': [.1, .2, .5, 1.]
             },
         'MultinomialNB':                  {
             'alpha'         : [.1, .2, .5, 1.]
@@ -167,7 +170,7 @@ PARAM_GRID = {
         'KNeighborsClassifier':            {
             'n_neighbors'   : np.arange(5,500),
             'p'             : [1, 2],
-            'metric'        : ['minkowski', 'canberra', 
+            'metric'        : ['minkowski', 'canberra','hamming',
                                 'braycurtis']
             }
         }
@@ -189,12 +192,13 @@ def FindParams(model, feature_set, y, CONFIG, subsample = None,
     """
     ### Setting configurations
     model_name = model.__class__.__name__
-    if model.__class__.__name__ == 'SGDClassifier':
+    if model.__class__.__name__ in ['SGDClassifier', 
+            'KNeighborsClassifier']:
         scorer = Accuracy # SGD can not predict probability
     else:
         scorer = LogLoss
     if model.__class__.__name__ in ['ExtraTreesClassifier', 
-                                  'BoostedTreesClassifier']:
+        'BoostedTreesClassifier', 'MultilayerPerceptronClassifier']:
         nCores = 1
     else:
         nCores = CONFIG['nCores']
@@ -207,6 +211,7 @@ def FindParams(model, feature_set, y, CONFIG, subsample = None,
                 model_feat)
     logger.info("nCores: %d, nGrid: %d, job_id: %s" % 
                 (nCores, nGrids, job_id))
+    logger.info("Scorer: %s", scorer.__class__.__name__)
     try:
         with open('../Params/RandomizedSearchCV/%s_saved_params.json' 
                   % model_feat) as f:
@@ -220,16 +225,18 @@ def FindParams(model, feature_set, y, CONFIG, subsample = None,
         X, _ = GetDataset(feature_set)
         clf = RandomizedSearchCV(model, PARAM_GRID[model_name], 
                 scoring = scorer, cv = 5, n_iter = CONFIG['nGrids'],
-                n_jobs = nCores, random_state = CONFIG['SEED'], verbose = 2) 
+                n_jobs = nCores, random_state = CONFIG['SEED'], verbose = 3) 
         clf.fit(X, y)
         
         ### Reporting
         logger.info("Found params (%s > %.4f): %s" %(
                     stringify(model, feature_set),
                     clf.best_score_, clf.best_params_))
+        #ipdb.set_trace()
         for fit_model in clf.grid_scores_:
-            Write(str(fit_model) + "\n")
-        
+            logger.info("MeanCV: %.4f", fit_model[1])
+            for para, para_value in fit_model[0].iteritems():
+                logger.info("%20s: %10s", para, para_value)
         ### Save Parameters
         params.update(clf.best_params_)
         saved_params[stringify(model, feature_set)] = params
@@ -295,27 +302,32 @@ def GetPredictionCV(model, feature_set, y, CONFIG, n_folds = 5):
 def GetLevel1(y, CONFIG):
     yhat_btc_full = np.load("yhat_btc_full.npz")['yhat']
     logger.info("BTC Log loss: %.4f" % log_loss(y, yhat_btc_full))
+    yhat_btc_full2 = np.load("yhat_btc_full2.npz")['yhat']
+    logger.info("BTC2 Log loss: %.4f" % log_loss(y, yhat_btc_full2))
     yhat_svc_full = np.load("yhat_svc_full.npz")['yhat']
     logger.info("SVC Log Loss: %.4f" % log_loss(y, yhat_svc_full))
     yhat_mpc_full = np.load("yhat_mpc_full.npz")['yhat']
     logger.info("MPC Log Loss: %.4f" % log_loss(y, yhat_mpc_full))
-    X1 = np.hstack([yhat_btc_full, yhat_svc_full, yhat_mpc_full])
+    X1 = np.hstack([yhat_btc_full, yhat_btc_full2, 
+                    yhat_svc_full, yhat_mpc_full])
     X1 = np.log(X1/(1-X1))
     clf = LogisticRegression(C = .1, fit_intercept = False, 
             penalty = 'l1', random_state = CONFIG['SEED'])
     clf.fit(X1, y)
     
     yhat_btc_test = np.load("yhat_btc_test.npz")['yhat']
+    yhat_btc_test2 = np.load("yhat_btc_test2.npz")['yhat']
     yhat_svc_test = np.load("yhat_svc_test.npz")['yhat']
     yhat_mpc_test = np.load("yhat_mpc_test.npz")['yhat']
-    X1test = np.hstack([yhat_btc_test, yhat_svc_test, yhat_mpc_test])
+    X1test = np.hstack([yhat_btc_test, yhat_btc_test2,
+                        yhat_svc_test, yhat_mpc_test])
     X1test = np.log(X1test/(1 - X1test))
     yhat = clf.predict_proba(X1test)
     return yhat
 
     
 if __name__ == '__main__':
-    logger.info("Running SVC %s, on %d cores" %(selected_model, nCores))
+    logger.info("Running %s, on %d cores" %(selected_model, nCores))
     _, y, _ = LoadData(); del _
     model_dict = { 'LR'   : LogisticRegression,
                    'RFC'  : RandomForestClassifier,
@@ -338,7 +350,8 @@ if __name__ == '__main__':
     if model_id not in ["MNB", "BTC", "KNC"]: 
         model.set_params(random_state = SEED)
     logger.debug('\n' + '='*50)
-    # FindParams(model, dataset, y, CONFIG)
+    res = FindParams(model, dataset, y, CONFIG)
+    """
     import multiprocessing as mp
 
     kcv = StratifiedKFold(y, 5, random_state = CONFIG['SEED'])
@@ -351,3 +364,4 @@ if __name__ == '__main__':
 
     #pool = mp.Pool(processes = 5)
     #results = pool.map(g, idx)
+    """
