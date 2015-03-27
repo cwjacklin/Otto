@@ -49,24 +49,43 @@ def SaveDataset(filename, X, Xtest):
             logger.info("> saving %s to disk", filename)
             np.savez_compressed("../Data/" + filename, X = X, Xtest = Xtest)
 
-def GetDataset(feature_set = 'original', train = None, valid = None):
+def GetDataset(feature_set = 'original', train = None, valid = None,
+        ensemble_list = None):
     logger.info("Loading Feature Set %s", feature_set)
-    try:
-        with open("../Data/%s.npz" % feature_set, 'r') as f:
-            data = np.load(f)
-            if train is None:
-                X, Xtest = data['X'], data['Xtest']
-            else:
-                X = data['X']
-                if valid is None:
-                    valid = [i for i in xrange(X.shape[0]) if i not in train]
-                Xtest = X[valid, :]
-                X = X[train, :]
-    except IOError:
-            logging.warining("Could not find feature set %s", feature_set)
-            return False
-    logger.info("X shape: (%d, %d). Xtest shape: (%d, %d)", np.shape(X)[0],
-            np.shape(X)[1], np.shape(Xtest)[0], np.shape(Xtest)[1])
+    if feature_set == 'ensemble':
+        list_yhat = []
+        for model_name in ensemble_list:
+            file_name = "yhat_" + model_name + "_full.npz"
+            list_yhat.append(np.load(file_name)['yhat'])
+        X = np.hstack(list_yhat)
+        eps = 1e-5; X[X < eps] = eps; X[X > 1 - eps] = 1 - eps
+        X = np.log(X/(1 - X))
+        list_yhat = []
+        for model_name in ensemble_list:
+            file_name = "yhat_" + model_name + "_test.npz"
+            list_yhat.append(np.load(file_name)['yhat'])
+        Xtest = np.hstack(list_yhat)
+        Xtest[Xtest < eps] = eps; Xtest[Xtest > 1 - eps] = 1 - eps
+        logger.info("Transforming log(p/(1-p))")
+        Xtest = np.log(Xtest/(1 - Xtest))
+    else:        
+        try:
+            with open("../Data/%s.npz" % feature_set, 'r') as f:
+                data = np.load(f)
+                if train is None:
+                    X, Xtest = data['X'], data['Xtest']
+                else:
+                    X = data['X']
+                    if valid is None:
+                        valid = [i for i in xrange(X.shape[0]) if i 
+                                    not in train]
+                    Xtest = X[valid, :]
+                    X = X[train, :]
+        except IOError:
+                logging.warining("Could not find feature set %s", feature_set)
+                return False
+        logger.info("X shape: (%d, %d). Xtest shape: (%d, %d)", np.shape(X)[0],
+                np.shape(X)[1], np.shape(Xtest)[0], np.shape(Xtest)[1])
     return X, Xtest
 
 def CreateDataset(X, Xtest, y, datasets = []):

@@ -42,37 +42,39 @@ from sklearn.neighbors          import KNeighborsClassifier
 from sklearn.cross_validation   import StratifiedKFold
 
 sys.path.insert(0, '../Library/MLP/')
-from multilayer_perceptron  import MultilayerPerceptronClassifier
+sys.path.insert(0, '../Library/CMC/')
+from multilayer_perceptron      import MultilayerPerceptronClassifier
+from CMC                        import ConstrainedMultinomialClassifier
+from CMC                        import GetBounds
 #from gl                     import BoostedTreesClassifier
 
 ###############################################################################
 ### 1. Setting Things Up
 ###############################################################################
 
-# selected_model = os.environ['model_feat']
 try:
     selected_model = os.environ['model_feat']
 except KeyError:
-    selected_model = "MPC_log"
-    Write("No model selected. Use default Logistic model\n")
+    selected_model = "CMC_ensemble"
+    Write("No model selected. Use default model: %s\n" % selected_model)
 
 try:
     job_id = os.environ['job_id']
 except KeyError:
     job_id = "003"
     Write("No jobid provided. Use default %s\n" % job_id)
-nCores = int(os.environ['OMP_NUM_THREADS'])
-nCores = 12
-nGrids = 10 
 
+try:
+    nCores = int(os.environ['OMP_NUM_THREADS'])
+except ValueError:
+    nCores = 1
 
 SEED = int(job_id)
 N_TREES = 1000
 
 CONFIG = {}
 CONFIG['nCores'] = nCores
-CONFIG['SEED']   = SEED
-CONFIG['nGrids'] = nGrids
+CONFIG['SEED']   = 1
 
 logging.basicConfig(format="[%(asctime)s] %(levelname)s\t%(message)s",
         filename="history.log", 
@@ -105,17 +107,16 @@ INITIAL_PARAMS = {
         'BoostedTreesClassifier'        : {'verbose' : True},
         'KNeighborsClassifier'          : {
             'weights'       : 'uniform',
-            'leaf_size'     : 1000,
-            'metric'        : 'minkowski'
-            }
-
+            'leaf_size'     : 1000
+            },
+        'ConstrainedMultinomialClassifier': {}
         }
 
 PARAM_GRID = {
         'LogisticRegression':             { 
-            'C'             : np.logspace(-4, 4, num = 9, base = 2.), 
+            'C'             : np.logspace(-20, 20, num = 210, base = 2.), 
             'penalty'       : ['l1', 'l2'],
-            'class_weight'  : ['auto']
+            'class_weight'  : [None, 'auto']
             },
         'RandomForestClassifier':         {
             'max_features'  : GetGrid(  50,  4, mode = "add", scale = 10),
@@ -123,7 +124,7 @@ PARAM_GRID = {
             'max_depth'     : [None, 6, 8, 10]
             },
         'ExtraTreesClassifier':           {
-            'max_features'  : GetGrid(  50,  4, mode = "add", scale = 10),
+            'max_features'  : range(5, 45),
             'criterion'     : ['gini', 'entropy'],
             'max_depth'     : [None, 6, 8, 10]
             },
@@ -138,8 +139,8 @@ PARAM_GRID = {
             'n_estimators'  : [50, 100, 200, 400]
             },
         'SVC':                            {
-            'C'             : np.arange(1,15),
-            'gamma'         : np.arange(1,15),
+            'C'             : np.logspace(-4,4, base = 2),
+            'gamma'         : np.logspace(-4,4, base = 2),
             'kernel'        : ['rbf', 'poly', 'sigmoid']
             },
         'GradientBoostingClassifier':     {
@@ -172,6 +173,11 @@ PARAM_GRID = {
             'p'             : [1, 2],
             'metric'        : ['minkowski', 'canberra','hamming',
                                 'braycurtis']
+            },
+        'ConstrainedMultinomialClassifier':{
+            'C'             : np.logspace(-20, 20, num = 210, base = 2.),
+            'max_iter'      : range(50,500),
+            'bounds'         : [None, GetBounds(5, 9)]
             }
         }
 
@@ -210,7 +216,7 @@ def FindParams(model, feature_set, y, CONFIG, subsample = None,
     logger.info("Start RandomizedSearchCV paramaeter for %s",
                 model_feat)
     logger.info("nCores: %d, nGrid: %d, job_id: %s" % 
-                (nCores, nGrids, job_id))
+                (nCores, CONFIG['nGrids'], job_id))
     logger.info("Scorer: %s", scorer.__class__.__name__)
     try:
         with open('../Params/RandomizedSearchCV/%s_saved_params.json' 
@@ -222,10 +228,11 @@ def FindParams(model, feature_set, y, CONFIG, subsample = None,
 
     if (grid_search and stringify(model, feature_set) not in saved_params):
         ### Fit Model
-        X, _ = GetDataset(feature_set)
+        X, _ = GetDataset(feature_set, 
+                        ensemble_list = CONFIG['ensemble_list'])
         clf = RandomizedSearchCV(model, PARAM_GRID[model_name], 
                 scoring = scorer, cv = 5, n_iter = CONFIG['nGrids'],
-                n_jobs = nCores, random_state = CONFIG['SEED'], verbose = 3) 
+                n_jobs = nCores, random_state = CONFIG['SEED'], verbose = 2) 
         clf.fit(X, y)
         
         ### Reporting
@@ -236,7 +243,10 @@ def FindParams(model, feature_set, y, CONFIG, subsample = None,
         for fit_model in clf.grid_scores_:
             logger.info("MeanCV: %.4f", fit_model[1])
             for para, para_value in fit_model[0].iteritems():
-                logger.info("%20s: %10s", para, para_value)
+                if para != 'bounds':
+                    logger.info("%20s: %10s", para, para_value)
+                else:
+                    logger.info("Bound with length %d: ", len(para_value))
         ### Save Parameters
         params.update(clf.best_params_)
         saved_params[stringify(model, feature_set)] = params
@@ -276,7 +286,8 @@ def GetPrediction(model, feature_set, y, train = None, valid = None,
     if 'verbose' in model.get_params():
         model.set_params(verbose = verbose)
 
-    X, Xtest = GetDataset(feature_set, train, valid)
+    X, Xtest = GetDataset(feature_set, train, valid, 
+            ensemble_list = CONFIG['ensemble_list'])
     model.set_params(**saved_params)
     logger.info("Fitting %s on %s feature", model_name, feature_set)
     model.fit(X, y)
@@ -325,33 +336,7 @@ def GetLevel1(y, CONFIG):
     yhat = clf.predict_proba(X1test)
     return yhat
 
-    
-if __name__ == '__main__':
-    logger.info("Running %s, on %d cores" %(selected_model, nCores))
-    _, y, _ = LoadData(); del _
-    model_dict = { 'LR'   : LogisticRegression,
-                   'RFC'  : RandomForestClassifier,
-                   'ETC'  : ExtraTreesClassifier,
-                   'ABC'  : AdaBoostClassifier,
-                   'SVC'  : SVC,
-                   'SGDC' : SGDClassifier,
-                   'GBC'  : GradientBoostingClassifier,
-                   'MPC'  : MultilayerPerceptronClassifier,
-                   'MNB'  : MultinomialNB,
-                   #'BTC'  : BoostedTreesClassifier,
-                   'KNC'  : KNeighborsClassifier
-                 }
-    if selected_model[:3] == "BTC": 
-        from gl import BoostedTreesClassifier
-        model_dict['BTC'] = BoostedTreesClassifier
-
-    model_id, dataset = selected_model.split('_')
-    model = model_dict[model_id]()
-    if model_id not in ["MNB", "BTC", "KNC"]: 
-        model.set_params(random_state = SEED)
-    logger.debug('\n' + '='*50)
-    res = FindParams(model, dataset, y, CONFIG)
-    """
+def GetCVParallel():
     import multiprocessing as mp
 
     kcv = StratifiedKFold(y, 5, random_state = CONFIG['SEED'])
@@ -362,6 +347,43 @@ if __name__ == '__main__':
     def g(t):
         return GetPrediction(SVC(), "text", y, train  = t[0], valid = t[1])
 
-    #pool = mp.Pool(processes = 5)
-    #results = pool.map(g, idx)
-    """
+    pool = mp.Pool(processes = 5)
+    results = pool.map(g, idx)
+
+if __name__ == '__main__':
+    logger.info("Running %s, on %d cores" %(selected_model, nCores))
+    _, y, _ = LoadData(); del _
+    CONFIG['ensemble_list'] = ['btc', 'btc2', 'svc', 'mpc', 'etc']
+    model_dict = { 'LR'   : LogisticRegression,
+                   'RFC'  : RandomForestClassifier,
+                   'ETC'  : ExtraTreesClassifier,
+                   'ABC'  : AdaBoostClassifier,
+                   'SVC'  : SVC,
+                   'SGDC' : SGDClassifier,
+                   'GBC'  : GradientBoostingClassifier,
+                   'MPC'  : MultilayerPerceptronClassifier,
+                   'MNB'  : MultinomialNB,
+                   'KNC'  : KNeighborsClassifier,
+                   'CMC'  : ConstrainedMultinomialClassifier
+                 }
+    if selected_model[:3] == "BTC": 
+        from gl import BoostedTreesClassifier
+        model_dict['BTC'] = BoostedTreesClassifier
+    
+
+    model_id, dataset = selected_model.split('_')
+    model = model_dict[model_id]()
+
+    if model_id in ['LR','CMC']:
+        CONFIG['nGrids'] = 500
+    elif model_id in ['RFC', 'ETC', 'GBC', 'MPC']:
+        CONFIG['nGrids'] = 100
+    else:
+        CONFIG['nGrids'] = 15
+    if 'random_state' in model.get_params(): 
+        model.set_params(random_state = SEED)
+    logger.debug('\n' + '='*50)
+    #res = FindParams(model, dataset, y, CONFIG)
+
+
+
