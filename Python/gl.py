@@ -84,7 +84,7 @@ class BoostedTreesClassifier(BaseEstimator):
                        step_size          = 0.3, min_child_weight = 0.1, 
                        column_subsample   = 1,      row_subsample = 1,
                        max_depth          = 6,     max_iterations = 10,
-                       verbose            = True):
+                       verbose            = True,      validation = None):
         self.min_loss_reduction = min_loss_reduction
         self.class_weights      = None
         self.step_size          = step_size
@@ -94,6 +94,7 @@ class BoostedTreesClassifier(BaseEstimator):
         self.max_depth          = max_depth
         self.max_iterations     = max_iterations
         self.verbose            = verbose
+        self.validation         = validation
 
     def fit(self, X, y):
         """
@@ -113,11 +114,17 @@ class BoostedTreesClassifier(BaseEstimator):
         self : object
             return self.
         """
-        
+        if type(self.validation) is tuple:
+            Xvalid, yvalid = self.validation
+            Xvalid = gl.SFrame(pd.DataFrame(Xvalid))
+            Xvalid['target'] = yvalid
+            self.validation = Xvalid
+       
         X = gl.SFrame(pd.DataFrame(X))
         X['target'] = y
         self.model = gl.boosted_trees_classifier.create(
-                X, target = 'target', validation_set = None,
+                X, target = 'target', 
+                validation_set      = self.validation,
                 min_loss_reduction  = self.min_loss_reduction,
                 class_weights       = self.class_weights,
                 step_size           = self.step_size,

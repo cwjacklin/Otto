@@ -22,8 +22,8 @@ from sklearn.grid_search    import GridSearchCV
 
 from utils                   import  *
 sys.path.insert(0, '../Library/MLP/')
-from autoencoder            import *
-from multilayer_perceptron  import *
+#from autoencoder            import *
+#from multilayer_perceptron  import *
 
 def LoadData2():
     Write("Loading Data...\n")

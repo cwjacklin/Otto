@@ -59,5 +59,3 @@ if False:
             verbose = True)
     mlp.fit(X[train], y[train])
     mlp.score(X[valid], y[valid])
-
-
