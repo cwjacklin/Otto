@@ -9,13 +9,8 @@
     layers: [
       !obj:pylearn2.models.mlp.RectifiedLinear {
         layer_name: 'h0',
-        dim: 400,
-        sparse_init: 150,
-      },
-      !obj:pylearn2.models.mlp.RectifiedLinear {
-        layer_name: 'h1',
-        dim: 400,
-        sparse_init: 150,
+        dim: 200,
+        sparse_init: 15,
       },
       !obj:pylearn2.models.mlp.Softmax {
         layer_name: 'y',
@@ -28,6 +23,17 @@
   ,
   algorithm: !obj:pylearn2.training_algorithms.bgd.BGD {
     batch_size: 8192,
+    cost: !obj:pylearn2.costs.cost.SumOfCosts {
+      costs: [
+      !obj:pylearn2.costs.mlp.Default {},
+      !obj:pylearn2.costs.mlp.L1WeightDecay {
+        coeffs: {'h0': .001, 'y': .001}
+      },
+      !obj:pylearn2.costs.mlp.WeightDecay {
+        coeffs: {'h0': .001, 'y': .001}
+      },
+    ]
+    },
     line_search_mode: 'exhaustive',
     conjugate: 1,
     updates_per_batch: 10,
@@ -42,7 +48,7 @@
     termination_criterion: !obj:pylearn2.termination_criteria.And {
       criteria: [
         !obj:pylearn2.termination_criteria.MonitorBased {
-          channel_name: "valid_y_misclass",
+          channel_name: "valid_objective",
           prop_decrease: .001,
           N: 20,
         },

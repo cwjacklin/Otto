@@ -1,15 +1,18 @@
 !obj:pylearn2.train.Train {
-  dataset: &train !obj:pylearn2.datasets.csv_dataset.CSVDataset {
+  dataset: &train !obj:pylearn2.datasets.transformer_dataset.TransformerDataset {
+    raw: !obj:pylearn2.datasets.csv_dataset.CSVDataset {
     path: '../../Data/train_pylearn2.csv',
     task: 'classification',
     start_fraction: .8,
+    },
+    transformer: !pkl: './dae_l1.pkl',
   },
   model: !obj:pylearn2.models.autoencoder.DenoisingAutoencoder {
-    nvis: 93,
+    nvis: 320,
     nhid: 320,
     irange: .05,
     corruptor: !obj:pylearn2.corruption.BinomialCorruptor {
-      corruption_level: .2,
+      corruption_level: .3,
     },
   act_enc: "tanh",
   act_dec: null,  # Linear activation on the decoder side.
@@ -24,6 +27,6 @@
       max_epochs: 40,
     },
   },
-  save_path: "./dae_l1.pkl",
+  save_path: "./dae_l2.pkl",
   save_freq: 1
 }

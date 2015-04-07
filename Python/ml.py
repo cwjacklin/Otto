@@ -40,13 +40,13 @@ from sklearn.grid_search        import GridSearchCV
 from sklearn.grid_search        import RandomizedSearchCV
 from sklearn.neighbors          import KNeighborsClassifier
 from sklearn.cross_validation   import StratifiedKFold
-
+from nolearn.dbn                import DBN
+from sklearn.calibration        import CalibratedClassifierCV
 sys.path.insert(0, '../Library/MLP/')
 sys.path.insert(0, '../Library/CMC/')
 from multilayer_perceptron      import MultilayerPerceptronClassifier
 from CMC                        import ConstrainedMultinomialClassifier
 from CMC                        import GetBounds
-#from gl                     import BoostedTreesClassifier
 
 ###############################################################################
 ### 1. Setting Things Up
@@ -55,13 +55,13 @@ from CMC                        import GetBounds
 try:
     selected_model = os.environ['model_feat']
 except KeyError:
-    selected_model = "CMC_ensemble"
+    selected_model = "BTC_log-standardized"
     Write("No model selected. Use default model: %s\n" % selected_model)
 
 try:
     job_id = os.environ['job_id']
 except KeyError:
-    job_id = "003"
+    job_id = "002"
     Write("No jobid provided. Use default %s\n" % job_id)
 
 try:
@@ -74,7 +74,7 @@ N_TREES = 1000
 
 CONFIG = {}
 CONFIG['nCores'] = nCores
-CONFIG['SEED']   = 1
+CONFIG['SEED']   = int(job_id)
 
 logging.basicConfig(format="[%(asctime)s] %(levelname)s\t%(message)s",
         filename="history.log", 
@@ -109,12 +109,13 @@ INITIAL_PARAMS = {
             'weights'       : 'uniform',
             'leaf_size'     : 1000
             },
-        'ConstrainedMultinomialClassifier': {}
+        'ConstrainedMultinomialClassifier': {},
+        'DBN'                           : {'verbose' : 2}
         }
 
 PARAM_GRID = {
         'LogisticRegression':             { 
-            'C'             : np.logspace(-20, 20, num = 210, base = 2.), 
+            'C'             : np.logspace(-20, 10, num = 210, base = 2.), 
             'penalty'       : ['l1', 'l2'],
             'class_weight'  : [None, 'auto']
             },
@@ -151,7 +152,7 @@ PARAM_GRID = {
             },
         'MultilayerPerceptronClassifier': {
             'max_iter'      : np.arange(20, 500),
-            'hidden_layer_sizes' : np.arange(20, 1000),
+            'hidden_layer_sizes' : np.arange(100, 800),
             'alpha'         : np.logspace(-20,3,24, base = 2),
             'learning_rate' : ['constant', 'invscaling'],
             'learning_rate_init': [.1, .2, .5, 1.]
@@ -164,9 +165,9 @@ PARAM_GRID = {
             'step_size'     : np.logspace(-5, 0, 6, base = 2),
             'max_depth'     : np.arange(6,25),
             'row_subsample' : [.5, .6, .7, .8, .9, 1.],
-          'column_subsample': [.5, .6, .7, .8, .9, 1.],
-          'min_child_weight': np.logspace(-10,5,16,base = 2),
-        'min_loss_reduction': np.arange(20)
+            'column_subsample': [.5, .6, .7, .8, .9, 1.],
+            'min_child_weight': np.logspace(-10,5,16,base = 2),
+            'min_loss_reduction': np.arange(20)
             },
         'KNeighborsClassifier':            {
             'n_neighbors'   : np.arange(5,500),
@@ -174,10 +175,22 @@ PARAM_GRID = {
             'metric'        : ['minkowski', 'canberra','hamming',
                                 'braycurtis']
             },
-        'ConstrainedMultinomialClassifier':{
-            'C'             : np.logspace(-20, 20, num = 210, base = 2.),
-            'max_iter'      : range(50,500),
-            'bounds'         : [None, GetBounds(5, 9)]
+        #'ConstrainedMultinomialClassifier':{
+        #    'C'             : np.logspace(-20, 20, num = 210, base = 2.),
+        #    'max_iter'      : range(50,500),
+        #    'bounds'         : [None, GetBounds(5, 9)]
+        #    },
+        'DBN'                             :{
+            'layer_sizes'   : np.vstack([-np.ones(9, dtype = np.int16), 
+                                np.logspace(6, 10, 9, base = 2),
+                                         -np.ones(9, dtype = np.int16)]).T,
+            'scales'        : np.logspace(-10,1, 12, base = 2),
+            'learn_rates'   : np.logspace(-8, 0, 17, base = 2),
+            'use_re_lu'     : [True, False],
+            'learn_rate_decays': [1., .99, .95, .90],
+            'learn_rate_minimums': np.logspace(-20,-10, base = 2),
+            'l2_costs'      : np.logspace(-20,-6, 15, base = 2),
+            'epochs'        : np.logspace(6, 11, 11, base = 2)
             }
         }
 
@@ -204,7 +217,7 @@ def FindParams(model, feature_set, y, CONFIG, subsample = None,
     else:
         scorer = LogLoss
     if model.__class__.__name__ in ['ExtraTreesClassifier', 
-        'BoostedTreesClassifier', 'MultilayerPerceptronClassifier']:
+        'BoostedTreesClassifier', 'MultilayerPerceptronClassifier', 'DBN']:
         nCores = 1
     else:
         nCores = CONFIG['nCores']
@@ -224,7 +237,6 @@ def FindParams(model, feature_set, y, CONFIG, subsample = None,
             saved_params = json.load(f)
     except IOError:
         saved_params = {}
-
 
     if (grid_search and stringify(model, feature_set) not in saved_params):
         ### Fit Model
@@ -310,14 +322,44 @@ def GetPredictionCV(model, feature_set, y, CONFIG, n_folds = 5):
                                         train = train_idx, valid = valid_idx)
     return res
 
+def ReportPerfCV(model, feature_set, y, calibrated = True, n_folds = 10):
+    kcv = StratifiedKFold(y, n_folds, random_state = 314); i = 1
+    res = np.empty((len(y), len(np.unique(y))))
+    X, Xtest = GetDataset(feature_set)
+    if calibrated: 
+        logger.info("Enabling probability calibration...")
+        model = CalibratedClassifierCV(model, 'sigmoid', cv = n_folds - 1)
+    for train_idx, valid_idx in kcv:
+        logger.info("Running fold %d...", i);
+        model.fit(X[train_idx], y[train_idx])
+        logger.info("Fold %i Accuracy: %.4f", i, 
+                model.score(X[valid_idx], y[valid_idx]))
+        res[valid_idx, :] = model.predict_proba(X[valid_idx])
+        logger.info("Fold %i Log Loss: %.4f", i, 
+                log_loss(y[valid_idx], res[valid_idx]))
+        i += 1
+    yhat = np.argmax(res, axis = 1) + 1
+    Y    = np.array([int(i[-1]) for i in y])
+    logger.info("CV Accuracy: %.5f", accuracy_score(Y, yhat))
+    logger.info("CV Log Loss: %.4f", log_loss(y, res))
+    return res
+
+f = open("../Params/Best/ETC:text_saved_params.json", 'r')
+saved_params = json.load(f)
+clf = ExtraTreesClassifier(**saved_params.get('ETC:text'))
+clf.set_params(n_jobs = 24)
+clf.set_params(n_estimators = 100)
+_, y, _ = LoadData(); del _
+
+
 def GetLevel1(y, CONFIG):
-    yhat_btc_full = np.load("yhat_btc_full.npz")['yhat']
+    yhat_btc_full = np.load("../Submission/yhat_btc_full.npz")['yhat']
     logger.info("BTC Log loss: %.4f" % log_loss(y, yhat_btc_full))
-    yhat_btc_full2 = np.load("yhat_btc_full2.npz")['yhat']
+    yhat_btc2_full = np.load("../Submission/yhat_btc2_full.npz")['yhat']
     logger.info("BTC2 Log loss: %.4f" % log_loss(y, yhat_btc_full2))
-    yhat_svc_full = np.load("yhat_svc_full.npz")['yhat']
+    yhat_svc_full = np.load("../Submission/yhat_svc_full.npz")['yhat']
     logger.info("SVC Log Loss: %.4f" % log_loss(y, yhat_svc_full))
-    yhat_mpc_full = np.load("yhat_mpc_full.npz")['yhat']
+    yhat_mpc_full = np.load("../Submissionyhat_mpc_full.npz")['yhat']
     logger.info("MPC Log Loss: %.4f" % log_loss(y, yhat_mpc_full))
     X1 = np.hstack([yhat_btc_full, yhat_btc_full2, 
                     yhat_svc_full, yhat_mpc_full])
@@ -350,10 +392,10 @@ def GetCVParallel():
     pool = mp.Pool(processes = 5)
     results = pool.map(g, idx)
 
-if __name__ == '__main__':
+if __name__ == '_main__':
     logger.info("Running %s, on %d cores" %(selected_model, nCores))
     _, y, _ = LoadData(); del _
-    CONFIG['ensemble_list'] = ['btc', 'btc2', 'svc', 'mpc', 'etc']
+    CONFIG['ensemble_list'] = ['btc', 'btc2', 'svc', 'mpc', 'etc', 'knc', 'nn']
     model_dict = { 'LR'   : LogisticRegression,
                    'RFC'  : RandomForestClassifier,
                    'ETC'  : ExtraTreesClassifier,
@@ -364,7 +406,8 @@ if __name__ == '__main__':
                    'MPC'  : MultilayerPerceptronClassifier,
                    'MNB'  : MultinomialNB,
                    'KNC'  : KNeighborsClassifier,
-                   'CMC'  : ConstrainedMultinomialClassifier
+                   'CMC'  : ConstrainedMultinomialClassifier,
+                   'DBN'  : DBN
                  }
     if selected_model[:3] == "BTC": 
         from gl import BoostedTreesClassifier
@@ -377,13 +420,10 @@ if __name__ == '__main__':
     if model_id in ['LR','CMC']:
         CONFIG['nGrids'] = 500
     elif model_id in ['RFC', 'ETC', 'GBC', 'MPC']:
-        CONFIG['nGrids'] = 100
+        CONFIG['nGrids'] = 30
     else:
-        CONFIG['nGrids'] = 15
-    if 'random_state' in model.get_params(): 
-        model.set_params(random_state = SEED)
+        CONFIG['nGrids'] = 3
+    #if 'random_state' in model.get_params(): 
+    #    model.set_params(random_state = 1)
     logger.debug('\n' + '='*50)
-    #res = FindParams(model, dataset, y, CONFIG)
-
-
-
+    res = FindParams(model, dataset, y, CONFIG)
