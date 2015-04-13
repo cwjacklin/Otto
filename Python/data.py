@@ -58,7 +58,7 @@ def GetDataset(feature_set = 'original', train = None, valid = None,
             file_name = "../Submission/yhat_" + model_name + "_full.npz"
             list_yhat.append(np.load(file_name)['yhat'])
         X = np.hstack(list_yhat)
-        eps = 1e-5; X[X < eps] = eps; X[X > 1 - eps] = 1 - eps
+        eps = 1e-6; X[X < eps] = eps; X[X > 1 - eps] = 1 - eps
         X = np.log(X/(1 - X))
         list_yhat = []
         for model_name in ensemble_list:
@@ -69,6 +69,8 @@ def GetDataset(feature_set = 'original', train = None, valid = None,
         logger.info("Transforming log(p/(1-p))")
         Xtest = np.log(Xtest/(1 - Xtest))
     else:
+        if len(feature_set.split("_")) > 1:
+            logger.error("Please change featureset name from _ to -")
         feat = feature_set.split('-')
         try:
             with open("../Data/%s.npz" % feat[0], 'r') as f:
@@ -86,6 +88,7 @@ def GetDataset(feature_set = 'original', train = None, valid = None,
                 logging.warning("Could not find feature set %s", feature_set)
                 return False
         if len(feat) > 1 and feat[1] == 'standardized':
+            logger.info("Standardizing Feature...")
             clf = StandardScaler()
             clf.fit(X)
             Xtest = clf.transform(Xtest)

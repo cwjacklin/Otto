@@ -57,17 +57,17 @@ params = dict(
         ('dropout1', layers.DropoutLayer),
         ('hidden1', layers.DenseLayer),
         ('dropout2', layers.DropoutLayer),
-        ('hidden2', layers.DenseLayer),
-        ('dropout3', layers.DropoutLayer),
+        #('hidden2', layers.DenseLayer),
+        #('dropout3', layers.DropoutLayer),
         ('output', layers.DenseLayer),
         ],
 
-    input_shape = (None, 93),
+    input_shape = (None, 54),
     dropout1_p = .1,
     hidden1_num_units = 400,
-    dropout2_p = .4,
-    hidden2_num_units = 400,
-    dropout3_p = .4,
+    dropout2_p = .2,
+    #hidden2_num_units = 400,
+    #dropout3_p = .2,
     output_nonlinearity = softmax,
     output_num_units = 9,
 
@@ -77,15 +77,16 @@ params = dict(
 
     regression = False,
     on_epoch_finished = [
-        AdjustVariable('update_learning_rate', start = .008, stop = .0001),
+        AdjustVariable('update_learning_rate', start = .008, stop = .00001),
         AdjustVariable('update_momentum', start = .9, stop = .999),
         ],
     max_epochs = 400,
     verbose = 1,
     )
-print "MacOS"
+print "Dropout .2, 600.start .02"
 net = NeuralNet(**params)
-net.fit(X, Y)
+print net
+#net.fit(X, Y)
 if False:
     kcv = StratifiedKFold(Y, 5, random_state = 314)
     res = np.empty((len(Y), len(np.unique(Y)))); i = 1

@@ -20,7 +20,7 @@ import cPickle as pickle
 import json
 import ipdb
 import os
-
+import multiprocessing as mp
 from utils                      import *
 from data                       import LoadData, GetDataset
 
@@ -47,6 +47,7 @@ sys.path.insert(0, '../Library/CMC/')
 from multilayer_perceptron      import MultilayerPerceptronClassifier
 from CMC                        import ConstrainedMultinomialClassifier
 from CMC                        import GetBounds
+from sklearn.linear_model       import LogisticRegressionCV
 
 ###############################################################################
 ### 1. Setting Things Up
@@ -140,9 +141,9 @@ PARAM_GRID = {
             'n_estimators'  : [50, 100, 200, 400]
             },
         'SVC':                            {
-            'C'             : np.logspace(-4,4, base = 2),
+            'C'             : np.logspace(-10,10, base = 2),
             'gamma'         : np.logspace(-4,4, base = 2),
-            'kernel'        : ['rbf', 'poly', 'sigmoid']
+            'kernel'        : ['rbf']
             },
         'GradientBoostingClassifier':     {
             'learning_rate' : [.1, .2, .5, 1.],
@@ -212,7 +213,7 @@ def FindParams(model, feature_set, y, CONFIG, subsample = None,
     ### Setting configurations
     model_name = model.__class__.__name__
     if model.__class__.__name__ in ['SGDClassifier', 
-            'KNeighborsClassifier']:
+            'KNeighborsClassifier', 'AdaBoostClassifier']:
         scorer = Accuracy # SGD can not predict probability
     else:
         scorer = LogLoss
@@ -344,55 +345,48 @@ def ReportPerfCV(model, feature_set, y, calibrated = True, n_folds = 10):
     logger.info("CV Log Loss: %.4f", log_loss(y, res))
     return res
 
-f = open("../Params/Best/ETC:text_saved_params.json", 'r')
-saved_params = json.load(f)
-clf = ExtraTreesClassifier(**saved_params.get('ETC:text'))
-clf.set_params(n_jobs = 24)
-clf.set_params(n_estimators = 100)
-_, y, _ = LoadData(); del _
+if False:
+    f = open("../Params/Best/ETC:text_saved_params.json", 'r')
+    saved_params = json.load(f)
+    clf = ExtraTreesClassifier(**saved_params.get('ETC:text'))
+    clf.set_params(n_jobs = 24)
+    clf.set_params(n_estimators = 100)
+    _, y, _ = LoadData(); del _
 
+def GetLogisticEnsemble(y, CONFIG):
+    Y = np.array([int(i[-1]) for i in y]) - 1
+    X, Xtest = GetDataset("ensemble", ensemble_list = CONFIG['ensemble_list'])
+    res = np.empty((len(Xtest), 9))
+    clf = LogisticRegressionCV(n_jobs = 12, fit_intercept = False, Cs = 100,
+            cv = 5, verbose = 2)
+    for i in xrange(9):
+        clf.fit(X[:, np.arange(6)*9 + i], (Y == i) + 0)
+        res[:,i] = clf.predict_proba(Xtest[:, np.arange(6)*9 + i])[:,1]
+    return res 
 
-def GetLevel1(y, CONFIG):
-    yhat_btc_full = np.load("../Submission/yhat_btc_full.npz")['yhat']
-    logger.info("BTC Log loss: %.4f" % log_loss(y, yhat_btc_full))
-    yhat_btc2_full = np.load("../Submission/yhat_btc2_full.npz")['yhat']
-    logger.info("BTC2 Log loss: %.4f" % log_loss(y, yhat_btc_full2))
-    yhat_svc_full = np.load("../Submission/yhat_svc_full.npz")['yhat']
-    logger.info("SVC Log Loss: %.4f" % log_loss(y, yhat_svc_full))
-    yhat_mpc_full = np.load("../Submissionyhat_mpc_full.npz")['yhat']
-    logger.info("MPC Log Loss: %.4f" % log_loss(y, yhat_mpc_full))
-    X1 = np.hstack([yhat_btc_full, yhat_btc_full2, 
-                    yhat_svc_full, yhat_mpc_full])
-    X1 = np.log(X1/(1-X1))
-    clf = LogisticRegression(C = .1, fit_intercept = False, 
-            penalty = 'l1', random_state = CONFIG['SEED'])
-    clf.fit(X1, y)
-    
-    yhat_btc_test = np.load("yhat_btc_test.npz")['yhat']
-    yhat_btc_test2 = np.load("yhat_btc_test2.npz")['yhat']
-    yhat_svc_test = np.load("yhat_svc_test.npz")['yhat']
-    yhat_mpc_test = np.load("yhat_mpc_test.npz")['yhat']
-    X1test = np.hstack([yhat_btc_test, yhat_btc_test2,
-                        yhat_svc_test, yhat_mpc_test])
-    X1test = np.log(X1test/(1 - X1test))
-    yhat = clf.predict_proba(X1test)
-    return yhat
-
-def GetCVParallel():
-    import multiprocessing as mp
-
-    kcv = StratifiedKFold(y, 5, random_state = CONFIG['SEED'])
+if __name__ == '__main__':
+    model = SVC(C = 4., gamma = 1., probability = True)
+    feature_set = 'text'
+    n_folds = 5
+    _, y, _ = LoadData(); del _
+    kcv = StratifiedKFold(y, n_folds, random_state = CONFIG['SEED'])
     idx = []
+    X, Xtest = GetDataset(feature_set)
     for train_idx, valid_idx in kcv:
         idx.append((train_idx, valid_idx))
-
     def g(t):
-        return GetPrediction(SVC(), "text", y, train  = t[0], valid = t[1])
-
-    pool = mp.Pool(processes = 5)
+        logger.info("Starting Parallel Job...")
+        model.fit(X[t[0]], y[t[0]])
+        yhat = model.predict_proba(X[t[1]])
+        logger.info("Fold LogLoss: %.4f", log_loss(y[t[1]], yhat))
+        return yhat
+    pool = mp.Pool(processes = n_folds)
     results = pool.map(g, idx)
+    res = np.empty((len(X), len(np.unique(y))))
+    for i in xrange(len(idx)):
+        res[idx[i][1]] = results[i]
 
-if __name__ == '_main__':
+if __name__ == '__main__':
     logger.info("Running %s, on %d cores" %(selected_model, nCores))
     _, y, _ = LoadData(); del _
     CONFIG['ensemble_list'] = ['btc', 'btc2', 'svc', 'mpc', 'etc', 'knc', 'nn']
@@ -422,7 +416,7 @@ if __name__ == '_main__':
     elif model_id in ['RFC', 'ETC', 'GBC', 'MPC']:
         CONFIG['nGrids'] = 30
     else:
-        CONFIG['nGrids'] = 3
+        CONFIG['nGrids'] = 20
     #if 'random_state' in model.get_params(): 
     #    model.set_params(random_state = 1)
     logger.debug('\n' + '='*50)
