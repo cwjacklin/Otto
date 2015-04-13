@@ -1,6 +1,7 @@
 *.dat
 Params/
 Submission/
+Employment/
 Jobs/
 *.csv
 *.pkl
