@@ -44,11 +44,12 @@ from nolearn.dbn                import DBN
 from sklearn.calibration        import CalibratedClassifierCV
 sys.path.insert(0, '../Library/MLP/')
 sys.path.insert(0, '../Library/CMC/')
+sys.path.insert(0, '../Library/GPUCB')
 from multilayer_perceptron      import MultilayerPerceptronClassifier
 from CMC                        import ConstrainedMultinomialClassifier
 from CMC                        import GetBounds
 from sklearn.linear_model       import LogisticRegressionCV
-
+from gpucb              import GPUCB, DoubleExponential, Matern52, Matern32
 ###############################################################################
 ### 1. Setting Things Up
 ###############################################################################
@@ -323,8 +324,9 @@ def GetPredictionCV(model, feature_set, y, CONFIG, n_folds = 5):
                                         train = train_idx, valid = valid_idx)
     return res
 
-def ReportPerfCV(model, feature_set, y, calibrated = True, n_folds = 10):
-    kcv = StratifiedKFold(y, n_folds, random_state = 314); i = 1
+def ReportPerfCV(model, feature_set, y, calibrated = False, n_folds = 5, 
+                    short = True):
+    kcv = StratifiedKFold(y, n_folds, shuffle = True); i = 1
     res = np.empty((len(y), len(np.unique(y))))
     X, Xtest = GetDataset(feature_set)
     if calibrated: 
@@ -339,19 +341,15 @@ def ReportPerfCV(model, feature_set, y, calibrated = True, n_folds = 10):
         logger.info("Fold %i Log Loss: %.4f", i, 
                 log_loss(y[valid_idx], res[valid_idx]))
         i += 1
+        if short: break
+    if short: return -log_loss(y[valid_idx], res[valid_idx])
     yhat = np.argmax(res, axis = 1) + 1
     Y    = np.array([int(i[-1]) for i in y])
     logger.info("CV Accuracy: %.5f", accuracy_score(Y, yhat))
     logger.info("CV Log Loss: %.4f", log_loss(y, res))
     return res
 
-if False:
-    f = open("../Params/Best/ETC:text_saved_params.json", 'r')
-    saved_params = json.load(f)
-    clf = ExtraTreesClassifier(**saved_params.get('ETC:text'))
-    clf.set_params(n_jobs = 24)
-    clf.set_params(n_estimators = 100)
-    _, y, _ = LoadData(); del _
+_, y, _ = LoadData(); del _
 
 def GetLogisticEnsemble(y, CONFIG):
     Y = np.array([int(i[-1]) for i in y]) - 1
@@ -364,7 +362,7 @@ def GetLogisticEnsemble(y, CONFIG):
         res[:,i] = clf.predict_proba(Xtest[:, np.arange(6)*9 + i])[:,1]
     return res 
 
-if __name__ == '__main__':
+def GetPredictionParallel():
     model = SVC(C = 4., gamma = 1., probability = True)
     feature_set = 'text'
     n_folds = 5
@@ -386,7 +384,13 @@ if __name__ == '__main__':
     for i in xrange(len(idx)):
         res[idx[i][1]] = results[i]
 
-if __name__ == '__main__':
+def OptSVC(C, gamma):
+    model = SVC(C = C, gamma = gamma, probability = True)
+    return ReportPerfCV(model, "text", y)
+
+def OptBTC(step_size, max_iter):
+    pass
+def TuneGridSearch():
     logger.info("Running %s, on %d cores" %(selected_model, nCores))
     _, y, _ = LoadData(); del _
     CONFIG['ensemble_list'] = ['btc', 'btc2', 'svc', 'mpc', 'etc', 'knc', 'nn']
@@ -417,7 +421,12 @@ if __name__ == '__main__':
         CONFIG['nGrids'] = 30
     else:
         CONFIG['nGrids'] = 20
-    #if 'random_state' in model.get_params(): 
-    #    model.set_params(random_state = 1)
+    if 'random_state' in model.get_params(): 
+        model.set_params(random_state = 1)
     logger.debug('\n' + '='*50)
     res = FindParams(model, dataset, y, CONFIG)
+
+if __name__ == '__main__':
+    res = GPUCB(func = OptSVC, n_params = 2, kernel = Matern32, intv = [.1, 10], 
+            sig = .005, mu_prior = .80, sigma_prior = .05, 
+            n_iter = int(job_id), n_grid = 1000)
