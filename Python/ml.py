@@ -430,3 +430,5 @@ if __name__ == '__main__':
     res = GPUCB(func = OptSVC, n_params = 2, kernel = Matern32, intv = [.1, 10], 
             sig = .005, mu_prior = .80, sigma_prior = .05, 
             n_iter = int(job_id), n_grid = 1000)
+    print res
+    pickle.dump(res, file = open(selected_model + job_id + ".pkl", 'w'))
