@@ -1,6 +1,6 @@
 import graphlab as gl
 import numpy as np
-from sklearn.metrics          import log_loss
+from sklearn.metrics          import log_loss, accuracy_score
 from sklearn.cross_validation import StratifiedKFold
 from utils import *
 import time
@@ -176,6 +176,11 @@ class BoostedTreesClassifier(BaseEstimator):
         X = gl.SFrame(pd.DataFrame(X))
         yhat = self.model.predict(X)
         return np.array(yhat)
+    def score(self, X, y):
+        X = gl.SFrame(pd.DataFrame(X))
+        yhat = self.model.predict(X)
+        yhat = np.array(yhat)
+        return accuracy_score(y, yhat)
 
 def TransformLabel(y):
     res = np.empty(shape = (len(y), 9))

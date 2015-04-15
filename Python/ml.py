@@ -49,7 +49,7 @@ from multilayer_perceptron      import MultilayerPerceptronClassifier
 from CMC                        import ConstrainedMultinomialClassifier
 from CMC                        import GetBounds
 from sklearn.linear_model       import LogisticRegressionCV
-from gpucb              import GPUCB, DoubleExponential, Matern52, Matern32
+from gpucb              import *
 ###############################################################################
 ### 1. Setting Things Up
 ###############################################################################
@@ -63,7 +63,7 @@ except KeyError:
 try:
     job_id = os.environ['job_id']
 except KeyError:
-    job_id = "002"
+    job_id = "72"
     Write("No jobid provided. Use default %s\n" % job_id)
 
 try:
@@ -388,8 +388,17 @@ def OptSVC(C, gamma):
     model = SVC(C = C, gamma = gamma, probability = True)
     return ReportPerfCV(model, "text", y)
 
-def OptBTC(step_size, max_iter):
-    pass
+from gl import BoostedTreesClassifier
+def OptBTC(step_size = .5, max_iterations = 100, row_subsample = .9, 
+        column_subsample = .9,
+        max_depth = 8):
+    model = BoostedTreesClassifier(step_size = step_size, 
+            max_iterations = max_iterations,
+            row_subsample = row_subsample, column_subsample = column_subsample,
+            max_depth = max_depth)
+    logger.info("Params: %s", model.get_params())
+    return ReportPerfCV(model, "original", y) 
+
 def TuneGridSearch():
     logger.info("Running %s, on %d cores" %(selected_model, nCores))
     _, y, _ = LoadData(); del _
@@ -427,8 +436,20 @@ def TuneGridSearch():
     res = FindParams(model, dataset, y, CONFIG)
 
 if __name__ == '__main__':
-    res = GPUCB(func = OptSVC, n_params = 2, kernel = Matern32, intv = [.1, 10], 
-            sig = .005, mu_prior = .80, sigma_prior = .05, 
-            n_iter = int(job_id), n_grid = 1000)
+    #res = GPUCB(func = OptSVC, kernel = Matern32, 
+    #        params_dist = {'C': Uniform(0,20), 'gamma': Uniform(1, 20)}, 
+    #        sig = .005, mu_prior = -.5, sigma_prior = .05, 
+    #        n_iter = int(job_id), n_grid = 1000, seed = int(job_id),
+    #        time_budget = int(job_id)*3600)
+    res = GPUCB(func = OptBTC, kernel = Matern32,
+            params_dist = {'max_iterations': UniformInt(500,2500),
+                            'step_size': LogUniform(.001,.1),
+                            'row_subsample': Uniform(.4,1.),
+                            'column_subsample': Uniform(.1, 1.),
+                            'max_depth': UniformInt(5,40)
+                            },
+            sig = .005, mu_prior = -.5, sigma_prior = .05,
+            n_iter = 1000, n_grid = 1000, seed = int(job_id),
+            time_budget = int(job_id)*3600)
     print res
     pickle.dump(res, file = open(selected_model + job_id + ".pkl", 'w'))
