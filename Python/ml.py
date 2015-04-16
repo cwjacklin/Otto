@@ -350,7 +350,7 @@ def ReportPerfCV(model, feature_set, y, calibrated = False, n_folds = 5,
     return res
 
 _, y, _ = LoadData(); del _
-
+CONFIG['ensemble_list'] = ['btc', 'btc2', 'svc', 'mpc', 'etc', 'knc', 'nn']
 def GetLogisticEnsemble(y, CONFIG):
     Y = np.array([int(i[-1]) for i in y]) - 1
     X, Xtest = GetDataset("ensemble", ensemble_list = CONFIG['ensemble_list'])
@@ -435,7 +435,7 @@ def TuneGridSearch():
     logger.debug('\n' + '='*50)
     res = FindParams(model, dataset, y, CONFIG)
 
-if __name__ == '__main__':
+if __name__ == '_main__':
     #res = GPUCB(func = OptSVC, kernel = Matern32, 
     #        params_dist = {'C': Uniform(0,20), 'gamma': Uniform(1, 20)}, 
     #        sig = .005, mu_prior = -.5, sigma_prior = .05, 
@@ -453,3 +453,30 @@ if __name__ == '__main__':
             time_budget = int(job_id)*3600)
     print res
     pickle.dump(res, file = open(selected_model + job_id + ".pkl", 'w'))
+
+if __name__ == '__main__':
+    clf = GPUCBOpt(kernel = Matern32W(invrho = 30), max_iter = 1000,
+                mu_prior = -.63, sigma_prior = .10, sig = .005, 
+                n_grid = 1000, random_state = int(job_id), 
+                time_budget = 36000, verbose = 1)
+    res1 = pickle.load(open("SVC12.pkl",'r'))
+    res2 = pickle.load(open("BTC12.pkl",'r'))
+    X1 = res1['X'][:15]
+    X2 = res2['X'][:75]
+    y1 = res1['y'][:15]
+    y2 = res2['y'][:75]
+    X  = np.vstack([X1, X2])
+    pre_y  = np.concatenate([y1, y2])
+    pre_X = {    'max_iterations'   : X[:,4],
+                 'step_size'       : X[:,1],
+                 'row_subsample'   : X[:,2],
+                 'column_subsample': X[:,0],
+                 'max_depth'       : X[:,3]}
+    params_dist = {'max_iterations': UniformInt(500,2500),
+                        'step_size': LogUniform(.001,.1),
+                    'row_subsample': Uniform(.4,1.),
+                 'column_subsample': Uniform(.1, 1.),
+                        'max_depth': UniformInt(5,40)}
+
+    clf.fit(func = OptBTC, params_dist = params_dist, 
+            pre_X = pre_X, pre_y = pre_y)
