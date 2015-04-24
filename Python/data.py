@@ -68,6 +68,9 @@ def GetDataset(feature_set = 'original', train = None, valid = None,
         Xtest[Xtest < eps] = eps; Xtest[Xtest > 1 - eps] = 1 - eps
         logger.info("Transforming log(p/(1-p))")
         Xtest = np.log(Xtest/(1 - Xtest))
+        if train is not None:
+            Xtest = X[valid]
+            X = X[train]
     else:
         if len(feature_set.split("_")) > 1:
             logger.error("Please change featureset name from _ to -")

@@ -209,7 +209,8 @@ class GPUCBOpt(BaseEstimator):
     """
     def __init__(self, sig = .1, mu_prior = 0., sigma_prior = 1., n_grid = 100,
             max_iter = 10, random_state = None, time_budget = 36000,
-            verbose = 1, kernel = DoubleExponential):
+            verbose = 1, kernel = DoubleExponential,
+            file_id = "111"):
         self.sig            = sig
         self.mu_prior       = mu_prior
         self.sigma_prior    = sigma_prior
@@ -219,6 +220,7 @@ class GPUCBOpt(BaseEstimator):
         self.time_budget    = time_budget
         self.verbose        = verbose
         self.kernel         = kernel
+        self.file_id        = file_id
 
     def get_grid(self, params_dist):
         self.n_params = len(params_dist)
@@ -271,6 +273,10 @@ class GPUCBOpt(BaseEstimator):
             sigma2      = np.ones(self.n_grid)*self.sigma_prior**2 - \
                             diag(kT.T.dot(invKT).dot(kT))
             sigma       = np.sqrt(sigma2)
+            ### Save Data
+            np.savez_compressed(func.__name__ + self.file_id + ".npz", 
+                    X = X[:(i+1)], y = y[:(i+1)], mu = mu, grid = grid,
+                    sigma = sigma)
             if self.verbose:
                 logger.info('%4d|%9.4g|%9.4g|%s', i, y[i], np.max(y[:(i + 1)]),
                         '|'.join(['{:9.4g}'.format(i) for i in X[i]]))

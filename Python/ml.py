@@ -106,7 +106,7 @@ INITIAL_PARAMS = {
         'GradientBoostingClassifier'    : {},
         'MultilayerPerceptronClassifier': {'activation' : 'relu'},
         'MultinomialNB'                 : {},
-        'BoostedTreesClassifier'        : {'verbose' : True},
+        'BoostedTreesClassifier'        : {'verbose' : False},
         'KNeighborsClassifier'          : {
             'weights'       : 'uniform',
             'leaf_size'     : 1000
@@ -325,7 +325,7 @@ def GetPredictionCV(model, feature_set, y, CONFIG, n_folds = 5):
     return res
 
 def ReportPerfCV(model, feature_set, y, calibrated = False, n_folds = 5, 
-                    short = True):
+                    short = False):
     kcv = StratifiedKFold(y, n_folds, shuffle = True); i = 1
     res = np.empty((len(y), len(np.unique(y))))
     X, Xtest = GetDataset(feature_set)
@@ -347,7 +347,7 @@ def ReportPerfCV(model, feature_set, y, calibrated = False, n_folds = 5,
     Y    = np.array([int(i[-1]) for i in y])
     logger.info("CV Accuracy: %.5f", accuracy_score(Y, yhat))
     logger.info("CV Log Loss: %.4f", log_loss(y, res))
-    return res
+    return -log_loss(y, res)
 
 _, y, _ = LoadData(); del _
 CONFIG['ensemble_list'] = ['btc', 'btc2', 'svc', 'mpc', 'etc', 'knc', 'nn']
@@ -399,10 +399,11 @@ def OptBTC(step_size = .5, max_iterations = 100, row_subsample = .9,
     logger.info("Params: %s", model.get_params())
     return ReportPerfCV(model, "original", y) 
 
-def TuneGridSearch():
+if __name__ == '__main__':
     logger.info("Running %s, on %d cores" %(selected_model, nCores))
     _, y, _ = LoadData(); del _
-    CONFIG['ensemble_list'] = ['btc', 'btc2', 'svc', 'mpc', 'etc', 'knc', 'nn']
+    CONFIG['ensemble_list'] = ['btc', 'btc2', 'svc', 'mpc', 'etc', 'knc', 'nn',
+                                'btc3', 'svc2', 'nn2']
     model_dict = { 'LR'   : LogisticRegression,
                    'RFC'  : RandomForestClassifier,
                    'ETC'  : ExtraTreesClassifier,
@@ -426,10 +427,10 @@ def TuneGridSearch():
 
     if model_id in ['LR','CMC']:
         CONFIG['nGrids'] = 500
-    elif model_id in ['RFC', 'ETC', 'GBC', 'MPC']:
-        CONFIG['nGrids'] = 30
+    elif model_id in ['RFC', 'ETC', 'GBC', 'MPC', 'BTC']:
+        CONFIG['nGrids'] = 50
     else:
-        CONFIG['nGrids'] = 20
+        CONFIG['nGrids'] = 30
     if 'random_state' in model.get_params(): 
         model.set_params(random_state = 1)
     logger.debug('\n' + '='*50)
@@ -454,29 +455,29 @@ if __name__ == '_main__':
     print res
     pickle.dump(res, file = open(selected_model + job_id + ".pkl", 'w'))
 
-if __name__ == '__main__':
-    clf = GPUCBOpt(kernel = Matern32W(invrho = 30), max_iter = 1000,
+if __name__ == '_main__':
+    clf = GPUCBOpt(kernel = Matern32W(invrho = 20), max_iter = 1000,
                 mu_prior = -.63, sigma_prior = .10, sig = .005, 
                 n_grid = 1000, random_state = int(job_id), 
-                time_budget = 36000, verbose = 1)
-    res1 = pickle.load(open("SVC12.pkl",'r'))
-    res2 = pickle.load(open("BTC12.pkl",'r'))
-    X1 = res1['X'][:15]
-    X2 = res2['X'][:75]
-    y1 = res1['y'][:15]
-    y2 = res2['y'][:75]
-    X  = np.vstack([X1, X2])
-    pre_y  = np.concatenate([y1, y2])
-    pre_X = {    'max_iterations'   : X[:,4],
-                 'step_size'       : X[:,1],
-                 'row_subsample'   : X[:,2],
-                 'column_subsample': X[:,0],
-                 'max_depth'       : X[:,3]}
-    params_dist = {'max_iterations': UniformInt(500,2500),
-                        'step_size': LogUniform(.001,.1),
+                time_budget = 3600*int(job_id), verbose = 1, file_id = job_id)
+    #res1 = pickle.load(open("SVC12.pkl",'r'))
+    #res2 = pickle.load(open("BTC12.pkl",'r'))
+    #X1 = res1['X'][:15]
+    #X2 = res2['X'][:75]
+    #y1 = res1['y'][:15]
+    #y2 = res2['y'][:75]
+    #X  = np.vstack([X1, X2])
+    #pre_y  = np.concatenate([y1, y2])
+    #pre_X = {    'max_iterations'   : X[:,4],
+    #             'step_size'       : X[:,1],
+    #             'row_subsample'   : X[:,2],
+    #             'column_subsample': X[:,0],
+    #             'max_depth'       : X[:,3]}
+    params_dist = {'max_iterations': UniformInt(300,3000),
+                        'step_size': LogUniform(.0001,.1),
                     'row_subsample': Uniform(.4,1.),
                  'column_subsample': Uniform(.1, 1.),
                         'max_depth': UniformInt(5,40)}
 
-    clf.fit(func = OptBTC, params_dist = params_dist, 
-            pre_X = pre_X, pre_y = pre_y)
+    clf.fit(func = OptBTC, params_dist = params_dist)
+    #        pre_X = pre_X, pre_y = pre_y)
