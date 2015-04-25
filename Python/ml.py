@@ -220,7 +220,7 @@ def FindParams(model, feature_set, y, CONFIG, subsample = None,
         scorer = LogLoss
     if model.__class__.__name__ in ['ExtraTreesClassifier', 
         'BoostedTreesClassifier', 'MultilayerPerceptronClassifier', 'DBN']:
-        nCores = 1
+        nCores = 1 
     else:
         nCores = CONFIG['nCores']
     ### Setting parameters
@@ -419,8 +419,16 @@ if __name__ == '__main__':
                  }
     if selected_model[:3] == "BTC": 
         from gl import BoostedTreesClassifier
+        from scipy.stats import uniform
+        from scipy.stats import randint
         model_dict['BTC'] = BoostedTreesClassifier
-    
+        PARAM_GRID['BoostedTreesClassifier'] = {
+                   'max_iterations': randint(300,3000),
+                        'step_size': np.logspace(-4,  0,500),
+                    'row_subsample': uniform(.4, .6),
+                 'column_subsample': uniform(.1, .9),
+                        'max_depth': randint(5,40)}
+   
 
     model_id, dataset = selected_model.split('_')
     model = model_dict[model_id]()
@@ -460,19 +468,6 @@ if __name__ == '_main__':
                 mu_prior = -.63, sigma_prior = .10, sig = .005, 
                 n_grid = 1000, random_state = int(job_id), 
                 time_budget = 3600*int(job_id), verbose = 1, file_id = job_id)
-    #res1 = pickle.load(open("SVC12.pkl",'r'))
-    #res2 = pickle.load(open("BTC12.pkl",'r'))
-    #X1 = res1['X'][:15]
-    #X2 = res2['X'][:75]
-    #y1 = res1['y'][:15]
-    #y2 = res2['y'][:75]
-    #X  = np.vstack([X1, X2])
-    #pre_y  = np.concatenate([y1, y2])
-    #pre_X = {    'max_iterations'   : X[:,4],
-    #             'step_size'       : X[:,1],
-    #             'row_subsample'   : X[:,2],
-    #             'column_subsample': X[:,0],
-    #             'max_depth'       : X[:,3]}
     params_dist = {'max_iterations': UniformInt(300,3000),
                         'step_size': LogUniform(.0001,.1),
                     'row_subsample': Uniform(.4,1.),
@@ -480,4 +475,3 @@ if __name__ == '_main__':
                         'max_depth': UniformInt(5,40)}
 
     clf.fit(func = OptBTC, params_dist = params_dist)
-    #        pre_X = pre_X, pre_y = pre_y)

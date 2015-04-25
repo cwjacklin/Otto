@@ -62,11 +62,11 @@ class EarlyStopping(object):
             nn.load_weights_from(self.best_weights)
             raise StopIteration()
 
-l_start = .0017
+l_start = .017
 l_stop = 1e-6
 m_start = .9
 m_stop = .999
-max_epochs = 1600
+max_epochs = 3000
 print l_start, l_stop, m_start, m_stop, max_epochs
 print "DDD"
 params = dict(
@@ -82,14 +82,14 @@ params = dict(
         ('output', layers.DenseLayer),
         ],
 
-    input_shape = (None, 36),
+    input_shape = (None, 186),
     dropout1_p = .1,
-    hidden1_num_units = 100,
-    dropout2_p = .2,
-    hidden2_num_units = 100,
-    dropout3_p = .2,
-    hidden3_num_units = 100,
-    dropout4_p = .2,
+    hidden1_num_units = 1500,
+    dropout2_p = .7,
+    hidden2_num_units = 1500,
+    dropout3_p = .7,
+    hidden3_num_units = 1500,
+    dropout4_p = .7,
     output_nonlinearity = softmax,
     output_num_units = 9,
 
