@@ -52,7 +52,15 @@ def SaveDataset(filename, X, Xtest):
 def GetDataset(feature_set = 'original', train = None, valid = None,
         ensemble_list = None):
     logger.info("Loading Feature Set %s", feature_set)
-    if feature_set == 'ensemble':
+    if feature_set == 'Nicholas':
+        X = np.load('../Submission/Nicholas.npz')['yhat_full']
+        index = np.load('../Data/index.npz')['index']
+        X = X[index]
+        Xtest = np.load('../Submission/Nicholas.npz')['yhat_test']
+        if train is not None:
+            Xtest = X[valid]
+            X = X[train]
+    elif feature_set == 'ensemble':
         list_yhat = []
         for model_name in ensemble_list:
             file_name = "../Submission/yhat_" + model_name + "_full.npz"

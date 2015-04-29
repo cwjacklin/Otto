@@ -23,7 +23,7 @@ import os
 import multiprocessing as mp
 from utils                      import *
 from data                       import LoadData, GetDataset
-
+from scipy.stats                import randint, uniform
 from sklearn.neural_network     import BernoulliRBM
 from sklearn.ensemble           import RandomForestClassifier
 from sklearn.svm                import SVC
@@ -57,7 +57,7 @@ from gpucb              import *
 try:
     selected_model = os.environ['model_feat']
 except KeyError:
-    selected_model = "BTC_log-standardized"
+    selected_model = "CCCV_original"
     Write("No model selected. Use default model: %s\n" % selected_model)
 
 try:
@@ -69,7 +69,7 @@ except KeyError:
 try:
     nCores = int(os.environ['OMP_NUM_THREADS'])
 except ValueError:
-    nCores = 1
+    nCores = 12
 
 SEED = int(job_id)
 N_TREES = 1000
@@ -108,11 +108,16 @@ INITIAL_PARAMS = {
         'MultinomialNB'                 : {},
         'BoostedTreesClassifier'        : {'verbose' : False},
         'KNeighborsClassifier'          : {
-            'weights'       : 'uniform',
-            'leaf_size'     : 1000
+            'weights'                   : 'uniform',
+            'leaf_size'                 : 1000
             },
         'ConstrainedMultinomialClassifier': {},
-        'DBN'                           : {'verbose' : 2}
+        'DBN'                           : {'verbose' : 2},
+        'CalibratedClassifierCV'        : {
+            'base_estimator'            : ExtraTreesClassifier(n_jobs = -1),
+            'cv'                        : 10,
+            'method'                    : 'isotonic',
+            }
         }
 
 PARAM_GRID = {
@@ -127,9 +132,20 @@ PARAM_GRID = {
             'max_depth'     : [None, 6, 8, 10]
             },
         'ExtraTreesClassifier':           {
-            'max_features'  : range(5, 45),
+            'max_features'  : randint(5,94),
             'criterion'     : ['gini', 'entropy'],
-            'max_depth'     : [None, 6, 8, 10]
+            'max_depth'     : randint(4,20),
+            'min_samples_split'                 : randint(1, 21),
+            'min_samples_leaf'                  : randint(1, 21),
+            'n_estimators'  : randint(100,1000)
+            },
+        'CalibratedClassifierCV':         {
+            'base_estimator__criterion'         : ['gini', 'entropy'],
+            'base_estimator__bootstrap'         : [True, False],
+            'base_estimator__max_depth'         : randint(4,20),
+            'base_estimator__min_samples_split' : randint(1, 21),
+            'base_estimator__min_samples_leaf'  : randint(1, 21),
+            'base_estimator__n_estimators'      : randint(100, 1000)
             },
         'SGDClassifier':                  {
             'loss'          : ['hinge', 'log', 'modified_huber', 'perceptron'],
@@ -177,11 +193,6 @@ PARAM_GRID = {
             'metric'        : ['minkowski', 'canberra','hamming',
                                 'braycurtis']
             },
-        #'ConstrainedMultinomialClassifier':{
-        #    'C'             : np.logspace(-20, 20, num = 210, base = 2.),
-        #    'max_iter'      : range(50,500),
-        #    'bounds'         : [None, GetBounds(5, 9)]
-        #    },
         'DBN'                             :{
             'layer_sizes'   : np.vstack([-np.ones(9, dtype = np.int16), 
                                 np.logspace(6, 10, 9, base = 2),
@@ -219,7 +230,8 @@ def FindParams(model, feature_set, y, CONFIG, subsample = None,
     else:
         scorer = LogLoss
     if model.__class__.__name__ in ['ExtraTreesClassifier', 
-        'BoostedTreesClassifier', 'MultilayerPerceptronClassifier', 'DBN']:
+        'BoostedTreesClassifier', 'MultilayerPerceptronClassifier', 'DBN',
+        'CalibratedClassifierCV']:
         nCores = 1 
     else:
         nCores = CONFIG['nCores']
@@ -347,7 +359,7 @@ def ReportPerfCV(model, feature_set, y, calibrated = False, n_folds = 5,
     Y    = np.array([int(i[-1]) for i in y])
     logger.info("CV Accuracy: %.5f", accuracy_score(Y, yhat))
     logger.info("CV Log Loss: %.4f", log_loss(y, res))
-    return -log_loss(y, res)
+    return res, -log_loss(y, res)
 
 _, y, _ = LoadData(); del _
 CONFIG['ensemble_list'] = ['btc', 'btc2', 'svc', 'mpc', 'etc', 'knc', 'nn']
@@ -415,12 +427,11 @@ if __name__ == '__main__':
                    'MNB'  : MultinomialNB,
                    'KNC'  : KNeighborsClassifier,
                    'CMC'  : ConstrainedMultinomialClassifier,
-                   'DBN'  : DBN
+                   'DBN'  : DBN,
+                   'CCCV' : CalibratedClassifierCV,
                  }
     if selected_model[:3] == "BTC": 
         from gl import BoostedTreesClassifier
-        from scipy.stats import uniform
-        from scipy.stats import randint
         model_dict['BTC'] = BoostedTreesClassifier
         PARAM_GRID['BoostedTreesClassifier'] = {
                    'max_iterations': randint(300,3000),
@@ -435,7 +446,7 @@ if __name__ == '__main__':
 
     if model_id in ['LR','CMC']:
         CONFIG['nGrids'] = 500
-    elif model_id in ['RFC', 'ETC', 'GBC', 'MPC', 'BTC']:
+    elif model_id in ['RFC', 'ETC', 'GBC', 'MPC', 'BTC', 'CCCV']:
         CONFIG['nGrids'] = 50
     else:
         CONFIG['nGrids'] = 30
