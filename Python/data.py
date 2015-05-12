@@ -50,7 +50,7 @@ def SaveDataset(filename, X, Xtest):
             np.savez_compressed("../Data/" + filename, X = X, Xtest = Xtest)
 
 def GetDataset(feature_set = 'original', train = None, valid = None,
-        ensemble_list = None):
+        ensemble_list = None, eps = 1e-6):
     logger.info("Loading Feature Set %s", feature_set)
     if feature_set == 'Nicholas':
         X = np.load('../Submission/Nicholas.npz')['yhat_full']
@@ -66,16 +66,17 @@ def GetDataset(feature_set = 'original', train = None, valid = None,
             file_name = "../Submission/yhat_" + model_name + "_full.npz"
             list_yhat.append(np.load(file_name)['yhat'])
         X = np.hstack(list_yhat)
-        eps = 1e-6; X[X < eps] = eps; X[X > 1 - eps] = 1 - eps
-        X = np.log(X/(1 - X))
         list_yhat = []
         for model_name in ensemble_list:
             file_name = "../Submission/yhat_" + model_name + "_test.npz"
             list_yhat.append(np.load(file_name)['yhat'])
         Xtest = np.hstack(list_yhat)
-        Xtest[Xtest < eps] = eps; Xtest[Xtest > 1 - eps] = 1 - eps
-        logger.info("Transforming log(p/(1-p))")
-        Xtest = np.log(Xtest/(1 - Xtest))
+        if eps:
+            X[X < eps] = eps; X[X > 1 - eps] = 1 - eps
+            X = np.log(X/(1 - X))
+            Xtest[Xtest < eps] = eps; Xtest[Xtest > 1 - eps] = 1 - eps
+            logger.info("Transforming log(p/(1-p))")
+            Xtest = np.log(Xtest/(1 - Xtest))
         if train is not None:
             Xtest = X[valid]
             X = X[train]
@@ -114,7 +115,8 @@ def GetDataset(feature_set = 'original', train = None, valid = None,
             np.shape(X)[1], np.shape(Xtest)[0], np.shape(Xtest)[1])
     return X, Xtest
 
-def CreateDataset(X, Xtest, y, datasets = []):
+from sklearn.cluster import KMeans
+def CreateDataset(X, Xtest, datasets = []):
     for dataset in datasets:
         if   dataset == 'text':
             X, Xtest = TextTransform(X, Xtest)
@@ -122,6 +124,13 @@ def CreateDataset(X, Xtest, y, datasets = []):
             X, Xtest = np.log10(X + 1), np.log10(Xtest + 1)
         elif dataset == 'original':
             pass
+        elif dataset == 'kmeans':
+            clf = KMeans(n_clusters = 200, n_init = 40, max_iter = 300, verbose
+                    = 1, n_jobs = -1)
+            X = np.vstack([X, Xtest])
+            XX = clf.fit_transform(X)
+            X = XX[:len(X)]
+            Xtest = XX[len(X):]
         else:
             logging.warning("Datasets must be one of: text, original, log")
         SaveDataset(dataset, X, Xtest)

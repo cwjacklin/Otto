@@ -6,12 +6,14 @@ import numpy as np
 import theano
 from sklearn.cross_validation import StratifiedKFold
 from sklearn.metrics import log_loss
-from data import GetDataset, LoadData
 from ml import *
 
 if True:
-    X, Xtest = GetDataset("original")
-    X = X.astype('float32')
+    X, Xtest = GetDataset("ensemble", 
+            ensemble_list = ['btc','btc2','btc3','btc4','svc','svc2','svc3',
+                'nn','nn2','nic', 'mpc','knc','etc','cccv', 'log'])
+    X, Xtest = GetDataset('text-standardized')
+    #X = X.astype('float32')
     _, y, _ = LoadData(); del _
     Y = np.array([int(i[-1]) for i in y])
     Y = Y.astype('int32') - 1
@@ -108,9 +110,9 @@ params = dict(
     verbose = 1,
     )
 
-def OptNN2(d0, h, d1, m_ep):
-    h = int(h); m_ep = int(m_ep)
-    logger.info("Params:..%f, %d, %f, %d", d0, h, d1, m_ep)
+def OptNN2(d0, d1,d2, d3, h1, h2, h3, me, ls, le):
+    h1, h2, h3 = int(h1), int(h2), int(h3); 
+    me = int(me)
     params = dict(
         layers = [
             ('input', layers.InputLayer),
@@ -126,12 +128,12 @@ def OptNN2(d0, h, d1, m_ep):
 
         input_shape = (None, 93),
         dropout1_p = d0,
-        hidden1_num_units = h,
+        hidden1_num_units = h1,
         dropout2_p = d1,
-        hidden2_num_units = h,
-        dropout3_p = d1,
-        hidden3_num_units = h,
-        dropout4_p = d1,
+        hidden2_num_units = h2,
+        dropout3_p = d2,
+        hidden3_num_units = h3,
+        dropout4_p = d3,
         output_nonlinearity = softmax,
         output_num_units = 9,
 
@@ -141,12 +143,12 @@ def OptNN2(d0, h, d1, m_ep):
 
         regression = False,
         on_epoch_finished = [
-            AdjustVariable('update_learning_rate', start = l_start, 
-                stop = l_stop, is_log = True),
+            AdjustVariable('update_learning_rate', start = ls, 
+                stop = le, is_log = True),
             AdjustVariable('update_momentum', start = m_start, 
                 stop = m_stop, is_log = False),
             ],
-        max_epochs = m_ep,
+        max_epochs = me,
         verbose = 1,
         )
 
@@ -188,19 +190,56 @@ def OptNN(d1, h1, d2, h2, d3, start, stop, max_epochs):
         CVScores.append(log_loss(Y[valid_idx], res[valid_idx]))
     return -np.mean(CVScores)
 
-if __name__ == '__main__':
-    if False:
-        score = OptNN2(.1, 512, .4, 10)
-        clf = GPUCBOpt(kernel = Matern32W(invrho = 10), max_iter = 1000,
-                     mu_prior = -.63, sigma_prior = .10, sig = .005,
-                       n_grid = 1000, random_state = int(job_id),
-                  time_budget = 3600*int(job_id), verbose = 1)
-        params_dist = {'d0': Uniform(0, .4),
-                        'd1': Uniform(.1, .6),
-                        'h' : UniformInt(200, 1000),
-                        'm_ep': UniformInt(300,3000)
-                       }  
-        clf.fit(OptNN2, params_dist)
+def OptMPC(max_iter, hidden_layer_sizes, alpha, learning_rate_init, power_t,
+        learning_rate):
+    if learning_rate: learning_rate = 'invscaling'
+    else:             learning_rate = 'constant'
+    kcv = StratifiedKFold(y, 5, shuffle = True)
+    res = np.empty((len(y), len(np.unique(y))))
+    for train_idx, valid_idx in kcv:
+        clf = MultilayerPerceptronClassifier(max_iter = max_iter,
+            hidden_layer_sizes  = hidden_layer_sizes,
+            alpha               = alpha,
+            learning_rate_init  = learning_rate_init,
+            power_t             = power_t)
+        clf.fit(X[train_idx], y[train_idx])
+        res[valid_idx] = clf.predict_proba(X[valid_idx])
+    return -log_loss(y, res)
+
+
+if True:
+    params_dist = {
+            'max_iter'          : UniformInt(100, 1000),
+            'hidden_layer_sizes': UniformInt(100, 1000),
+            'alpha'             : LogUniform(2**-15, 1),
+            'learning_rate'     : UniformInt(0,2),
+            'learning_rate_init': LogUniform(2**-10, 1),
+            'power_t'           : Uniform(.3, .99)
+            }
+    clf = GPUCBOpt(kernel = DoubleExponential, max_iter = 100, 
+            mu_prior = -.50, sigma_prior = .10, sig = .005, 
+            n_grid   = 1000, random_state = int(job_id),
+            time_budget = 3600*12*7, verbose = 1)
+    clf.fit(OptMPC, params_dist)
+
+if False:
+    clf = GPUCBOpt(kernel = DoubleExponential, max_iter = 1000,
+		 mu_prior = -.63, sigma_prior = .10, sig = .005,
+		   n_grid = 1000, random_state = None,
+	      time_budget = 3600*172, verbose = 1)
+    params_dist = { 'd0': Uniform(.0, .4),
+		    'd1': Uniform(.0, .6),
+		    'd2': Uniform(.0, .6),
+		    'd3': Uniform(.0, .6),
+		    'h1': UniformInt(200, 2000),
+		    'h2': UniformInt(200, 2000),
+		    'h3': UniformInt(200, 2000),
+		    'me': UniformInt(300,3000),
+		    'ls': LogUniform(.001, .1),
+		    'le': LogUniform(1e-8, 1e-4),
+		   }  
+    clf.fit(OptNN2, params_dist)
+    """
     res = np.zeros(1000)
     for i in xrange(1000):
         d0 = np.random.uniform(.1,.2)
@@ -210,3 +249,4 @@ if __name__ == '__main__':
         res[i] = OptNN2(d0 = d0, h = h, d1 = d1, m_ep = m_ep)
         logger.info("LogLoss: %10.4f ", res[i])
         np.savez_compressed("res2_NN.npz", res = res)
+    """

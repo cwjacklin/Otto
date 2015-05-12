@@ -1,5 +1,5 @@
 import numpy as np
-import ipdb
+#import ipdb
 import logging
 import time
 from numpy.core.numeric     import identity
@@ -279,7 +279,7 @@ class GPUCBOpt(BaseEstimator):
                     sigma = sigma)
             if self.verbose:
                 logger.info('%4d|%9.4g|%9.4g|%s', i, y[i], np.max(y[:(i + 1)]),
-                        '|'.join(['{:9.4g}'.format(i) for i in X[i]]))
+                        '|'.join(['{:9.4g}'.format(ii) for ii in X[i]]))
             if time.time() - time_start > self.time_budget:
                 break
         self.X      = X[:(i + 1)]

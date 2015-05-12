@@ -140,11 +140,13 @@ PARAM_GRID = {
             'n_estimators'  : randint(100,1000)
             },
         'CalibratedClassifierCV':         {
-            'base_estimator__criterion'         : ['gini', 'entropy'],
-            'base_estimator__bootstrap'         : [True, False],
-            'base_estimator__max_depth'         : randint(4,20),
-            'base_estimator__min_samples_split' : randint(1, 21),
-            'base_estimator__min_samples_leaf'  : randint(1, 21),
+            #'base_estimator__criterion'         : ['gini', 'entropy'],
+            #'base_estimator__bootstrap'         : [True, False],
+            #'base_estimator__max_depth'         : randint(4,20),
+            #'base_estimator__min_samples_split' : randint(1, 21),
+            #'base_estimator__min_samples_leaf'  : randint(1, 21),
+            'cv'                                : randint(3,15),
+            'base_estimator__max_features'      : randint(10,93),
             'base_estimator__n_estimators'      : randint(100, 1000)
             },
         'SGDClassifier':                  {
@@ -169,11 +171,12 @@ PARAM_GRID = {
             'max_features'  : GetGrid(  50,  4, mode = "add", scale = 10)
             },
         'MultilayerPerceptronClassifier': {
-            'max_iter'      : np.arange(20, 500),
-            'hidden_layer_sizes' : np.arange(100, 800),
-            'alpha'         : np.logspace(-20,3,24, base = 2),
+            'max_iter'      : randint(100,1000),
+            'hidden_layer_sizes' : randint(100,1000),
+            'alpha'         : np.logspace(-15,0,24, base = 2),
             'learning_rate' : ['constant', 'invscaling'],
-            'learning_rate_init': [.1, .2, .5, 1.]
+            'learning_rate_init': np.logspace(-10,0,base = 2),
+            'power_t'       : uniform(.3,.69),
             },
         'MultinomialNB':                  {
             'alpha'         : [.1, .2, .5, 1.]
@@ -284,7 +287,8 @@ def FindParams(model, feature_set, y, CONFIG, subsample = None,
         params.update(saved_params.get(stringify(model, feature_set), {}))
         if grid_search:
             logger.info("Using params %s: %s" % (model_feat, params))
-
+    pickle.dump(clf.grid_scores_, open('../Employment/MPC15/' + \
+                   model_feat + job_id + '.pkl', 'w'))
     return params
 
 def GetPrediction(model, feature_set, y, train = None, valid = None, 
@@ -400,7 +404,6 @@ def OptSVC(C, gamma):
     model = SVC(C = C, gamma = gamma, probability = True)
     return ReportPerfCV(model, "text", y)
 
-from gl import BoostedTreesClassifier
 def OptBTC(step_size = .5, max_iterations = 100, row_subsample = .9, 
         column_subsample = .9,
         max_depth = 8):
@@ -414,8 +417,8 @@ def OptBTC(step_size = .5, max_iterations = 100, row_subsample = .9,
 if __name__ == '__main__':
     logger.info("Running %s, on %d cores" %(selected_model, nCores))
     _, y, _ = LoadData(); del _
-    CONFIG['ensemble_list'] = ['btc', 'btc2', 'svc', 'mpc', 'etc', 'knc', 'nn',
-                                'btc3', 'svc2', 'nn2']
+    CONFIG['ensemble_list'] = ['btc','btc2','btc3','btc4','svc','svc2','svc3',
+            'nn','nn2','nic', 'mpc','knc','etc','cccv', 'log']
     model_dict = { 'LR'   : LogisticRegression,
                    'RFC'  : RandomForestClassifier,
                    'ETC'  : ExtraTreesClassifier,
@@ -440,7 +443,6 @@ if __name__ == '__main__':
                  'column_subsample': uniform(.1, .9),
                         'max_depth': randint(5,40)}
    
-
     model_id, dataset = selected_model.split('_')
     model = model_dict[model_id]()
 
