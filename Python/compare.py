@@ -70,7 +70,7 @@ if False:
         j += 1
 
 ## 4. Rand
-if True:
+if False:
     Rand = []; j = 0
     kcv = StratifiedKFold(y, n_folds = 62, random_state = 1)
     logger.info('Starting Search...\n')
@@ -135,3 +135,34 @@ if False:
         GP.append(gp.y)
         pickle.dump(GP, open("BTC_GP_LLFull.pkl", 'w'))
         j += 1
+
+## 6. Random Direction
+if True:
+    RD = []; j = -1
+    kcv = StratifiedKFold(y, n_folds = 62, random_state = 1)
+    logger.info('Starting Search...\n')
+    for train_idx, valid_idx in kcv:
+        j = j + 1
+        if j < 50: continue
+        def f(mi, s, md, r, c):
+            mi = int(mi)
+            md = int(md)
+            clf = BoostedTreesClassifier(max_iterations = mi,
+                    step_size = s,
+                    max_depth = md,
+                    row_subsample = r,
+                    column_subsample = c,
+                    verbose = 0)
+            clf.fit(X[valid_idx], y[valid_idx])
+            yhat = clf.predict_proba(X[train_idx])
+            return -log_loss(y[train_idx], yhat)
+        clf = RandomDirection(decay_start = 0, decay_stop = -3, max_iter = 243)
+        clf.fit(func = f, param_ranges = {
+                'mi': [5,36],
+                's' : [.4, 1],
+                'md': [4,12],
+                'r' : [.4, 1],
+                'c' : [.4, 1]
+            })
+        RD.append(clf.best)
+        pickle.dump(RD,open('RD60.pkl','w'))

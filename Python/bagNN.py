@@ -48,10 +48,10 @@ def GetYhat(model, feature_set, y):
     return res_cv, res_test/5
 
 print 'qwe'
-if True:
+if False:
     X, y, Xtest = LoadData()
     clf = CalibratedClassifierCV(
-              base_estimator = RandomForestClassifier(
+              base_estimator = ExtraTreesClassifier(
                   n_estimators = 300, 
                   max_features = 9, verbose = 0, n_jobs = -1), 
               method = 'isotonic',
@@ -63,9 +63,32 @@ if True:
         yhat_cv, yhat_test = GetYhat(clf, 'original', y)
         res_cv   = res_cv   + yhat_cv
         res_test = res_test + yhat_test
-        print i, log_loss(y, res_cv)
+        print i, log_loss(y, yhat_cv)
     res_cv = res_cv/n_bag
     res_test = res_test/n_bag
-    np.savez_compressed('../Submission/yhat_crfcbag_full.npz', yhat = res_cv)
-    np.savez_compressed('../Submission/yhat_crfcbag_test.npz', yhat = res_test)
-        
+    np.savez_compressed('../Submission/yhat_cetcbag_full.npz', yhat = res_cv)
+    np.savez_compressed('../Submission/yhat_cetcbag_test.npz', yhat = res_test)
+if True:
+    X, y, Xtest = LoadData()
+    from gl import BoostedTreesClassifier
+    import json
+    import time
+    params = json.load(open('../Params/Best/BTC:original_saved_params.json'))
+    params = params['BTC:original']
+    np.random.seed(1)
+    clf = BoostedTreesClassifier(**params)
+    res_cv, res_test = 0, 0
+    n_bag = 50
+
+    time_before = time.time()
+    for i in xrange(n_bag):
+        yhat_cv, yhat_test = GetYhat(clf, 'original', y)
+        res_cv   = res_cv   + yhat_cv
+        res_test = res_test + yhat_test
+        print i, log_loss(y, yhat_cv)
+        if time.time() - time_before > 48*3600: break
+    res_cv = res_cv/(i+1)
+    res_test = res_test/(i+1)
+    np.savez_compressed('../Submission/yhat_btcbag_full.npz', yhat = res_cv)
+    np.savez_compressed('../Submission/yhat_btcbag_test.npz', yhat = res_test)
+

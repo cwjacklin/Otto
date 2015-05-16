@@ -10,22 +10,25 @@ from scipy.stats            import uniform, randint
 from sklearn.base           import BaseEstimator
 logger = logging.getLogger(__name__)
 ### 1. Kernels
-def DoubleExponential(x1, x2, rho = 1./5):
-    return np.exp(-.5*cdist(x1, x2)**2/x1.shape[1]/rho**2)
+def DoubleExponential(x1, x2, invrho = 5.):
+    return np.exp(-.5*cdist(x1, x2)**2/x1.shape[1]*invrho**2)
 
 def DoubleExponentialW(invrho = 5.):
-    return lambda x1, x2: DoubleExponential(x1, x2, rho = 1./invrho)
+    return lambda x1, x2: DoubleExponential(x1, x2, invrho = invrho)
 
-def Matern52(x1, x2, rho = 1./5):
-    d = cdist(x1, x2)/np.sqrt(x1.shape[1])/rho
+def Matern52(x1, x2, invrho = 5.):
+    d = cdist(x1, x2)/np.sqrt(x1.shape[1])*invrho
     return (1 + np.sqrt(5)*d + 5/3*d**2)*np.exp(-np.sqrt(5)*d)
 
-def Matern32(x1, x2, rho = 1./10):
-    d = cdist(x1, x2)/np.sqrt(x1.shape[1])/rho
+def Matern52W(invrho = 10):
+    return lambda x1, x2: Matern52(x1, x2, invrho = invrho)
+
+def Matern32(x1, x2, invrho = 10.):
+    d = cdist(x1, x2)/np.sqrt(x1.shape[1])*invrho
     return (1 + np.sqrt(3)*d)*np.exp(-np.sqrt(3)*d)
 
 def Matern32W(invrho = 10):
-    return lambda x1, x2: Matern32(x1, x2, rho = 1./invrho)
+    return lambda x1, x2: Matern32(x1, x2, invrho = invrho)
 ### 2. Sample Functions to Maximize
 def f(x):
     return x*np.sin(np.pi*1*x)
@@ -210,7 +213,7 @@ class GPUCBOpt(BaseEstimator):
     def __init__(self, sig = .1, mu_prior = 0., sigma_prior = 1., n_grid = 100,
             max_iter = 10, random_state = None, time_budget = 36000,
             verbose = 1, kernel = DoubleExponential,
-            file_id = "111"):
+            beta_mode = 'log'):
         self.sig            = sig
         self.mu_prior       = mu_prior
         self.sigma_prior    = sigma_prior
@@ -220,7 +223,7 @@ class GPUCBOpt(BaseEstimator):
         self.time_budget    = time_budget
         self.verbose        = verbose
         self.kernel         = kernel
-        self.file_id        = file_id
+        self.beta_mode      = 'log'
 
     def get_grid(self, params_dist):
         self.n_params = len(params_dist)
@@ -254,10 +257,21 @@ class GPUCBOpt(BaseEstimator):
             pre_len  = len(pre_y)
         else: pre_len = 0
         if self.verbose:
+            params_name = [i[:9] for i in self.params_name]
             logger.info('%4s|%9s|%9s|%9s', 'Iter','Func','Max',
-                    '|'.join(['{:9s}'.format(i) for i in self.params_name]))
+                    '|'.join(['{:9s}'.format(i) for i in params_name]))
         for i in xrange(pre_len, pre_len + self.max_iter):
-            beta        = (i + 1)**2
+            #beta        = (i + 1)**2
+            if self.beta_mode == 'log':
+                d       = len(self.params_name)
+                beta    = 2*np.log(2 *(i + 1)**2 * np.pi**2 /.3) + \
+                          2*d*np.log( (i+1)**2 * d * 2)
+            elif self.beta_mode == 'linear':
+                beta    = i + 1
+            elif self.beta_mode == 'square':
+                beta    = (i + 1)**2
+            else:
+                logger.error("What The Hell. Change Beta Parameter")
             idx         = np.argmax(mu + np.sqrt(beta)*sigma)
             X[i,:]      = grid[idx]
             X_scaled[i] = grid_scaled[idx]
@@ -274,9 +288,6 @@ class GPUCBOpt(BaseEstimator):
                             diag(kT.T.dot(invKT).dot(kT))
             sigma       = np.sqrt(sigma2)
             ### Save Data
-            np.savez_compressed(func.__name__ + self.file_id + ".npz", 
-                    X = X[:(i+1)], y = y[:(i+1)], mu = mu, grid = grid,
-                    sigma = sigma)
             if self.verbose:
                 logger.info('%4d|%9.4g|%9.4g|%s', i, y[i], np.max(y[:(i + 1)]),
                         '|'.join(['{:9.4g}'.format(ii) for ii in X[i]]))
@@ -300,3 +311,86 @@ class GPUCBOpt(BaseEstimator):
             else:
                 pre_X_scaled[:,i] = np.array(pre_X[param])/distribution.scale()
         return pre_X_mat, pre_X_scaled
+
+from sklearn.metrics import make_scorer, log_loss
+from sklearn.cross_validation import cross_val_score
+LogLoss = make_scorer(log_loss, greater_is_better = False, needs_proba = True)
+class GaussianProcessCV(BaseEstimator):
+    def __init__(self, estimator, param_distributions, cv = 5, sig = .01, 
+            mu_prior = -.60, sigma_prior = .10, kernel = DoubleExponential,
+            random_state = None, time_budget = 36000, verbose = 1,
+            max_iter = 10, n_grid = 1000, scoring = LogLoss):
+        self.estimator              = estimator
+        self.param_distributions    = param_distributions
+        self.cv                     = cv
+        self.sig                    = sig
+        self.mu_prior               = mu_prior
+        self.sigma_prior            = sigma_prior
+        self.kernel                 = kernel
+        self.random_state           = random_state
+        self.time_budget            = time_budget
+        self.verbose                = verbose
+        self.max_iter               = max_iter
+        self.n_grid                 = n_grid
+        self.scoring                = scoring
+    def log_loss_cv(self, **params):
+        self.estimator.set_params(**params)
+        return np.mean(cross_val_score(self.estimator, self.X, self.y, 
+                scoring = self.scoring, n_jobs = self.cv, cv = self.cv))
+    def fit(self, X, y):
+        self.X = X
+        self.y = y
+        clf = GPUCBOpt( sig             = self.sig, 
+                        mu_prior        = self.mu_prior, 
+                        sigma_prior     = self.sigma_prior, 
+                        n_grid          = self.n_grid, 
+                        max_iter        = self.max_iter, 
+                        random_state    = self.random_state, 
+                        time_budget     = self.time_budget, 
+                        verbose         = self.verbose, 
+                        kernel          = self.kernel)
+        clf.fit(self.log_loss_cv, self.param_distributions)
+        self.f_values = clf.y
+        self.f_args   = clf.X
+class RandomSearchCV(BaseEstimator):
+    def __init__(self, estimator, param_distributions, cv = 5, 
+            time_budget = 36000, max_iter = 10, verbose = 1, 
+            random_state = None, scoring = LogLoss):
+        self.estimator              = estimator
+        self.param_distributions    = param_distributions
+        self.cv                     = cv
+        self.time_budget            = time_budget
+        self.max_iter               = max_iter
+        self.verbose                = verbose
+        self.random_state           = random_state
+        self.scoring                = scoring
+    def log_loss_cv(self, **params):
+        self.estimator.set_params(**params)
+        return np.mean(cross_val_score(self.estimator, self.X, self.y,
+            scoring = self.scoring, n_jobs = self.cv, cv = self.cv))
+    def fit(self, X, y):
+        if self.random_state is not None: np.random.seed(self.random_state)
+        time_start = time.time() 
+        self.X = X
+        self.y = y
+        params_name = self.param_distributions.keys()
+        f_values = np.zeros(self.max_iter)
+        f_args   = np.zeros((self.max_iter, len(self.param_distributions)))
+        if self.verbose:
+            p_name = [i[:9] for i in params_name]
+            logger.info('%4s|%9s|%9s|%9s', 'Iter','Func','Max',
+                    '|'.join(['{:9s}'.format(i) for i in p_name]))
+        for i in xrange(self.max_iter):
+            params = {}
+            for key in self.param_distributions:
+                params[key] = self.param_distributions[key].rvs(1)[0]
+            f_values[i] = self.log_loss_cv(**params)
+            f_args[i]   = params.values()
+            if self.verbose:
+                logger.info('%4d|%9.4g|%9.4g|%s', i, 
+                        f_values[i], np.max(f_values[:(i + 1)]),
+                        '|'.join(['{:9.4g}'.format(ii) for ii in f_args[i]]))
+            if time.time() - time_start > self.time_budget:
+                break
+        self.f_values = f_values
+        self.f_args = f_args

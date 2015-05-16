@@ -49,7 +49,8 @@ from multilayer_perceptron      import MultilayerPerceptronClassifier
 from CMC                        import ConstrainedMultinomialClassifier
 from CMC                        import GetBounds
 from sklearn.linear_model       import LogisticRegressionCV
-from gpucb              import *
+from gpucb                      import *
+from randomDirection            import *
 ###############################################################################
 ### 1. Setting Things Up
 ###############################################################################
@@ -214,7 +215,7 @@ PARAM_GRID = {
 ### 2. Function to Randomized Grid Search CV for best parameters
 ###############################################################################
 
-LogLoss = make_scorer(LogLossAdjGrid, greater_is_better = False, 
+logLoss = make_scorer(LogLossAdjGrid, greater_is_better = False, 
                       needs_proba = True)
 Accuracy = make_scorer(accuracy_score, greater_is_better = True, 
                       needs_proba = False)
@@ -231,7 +232,7 @@ def FindParams(model, feature_set, y, CONFIG, subsample = None,
             'KNeighborsClassifier', 'AdaBoostClassifier']:
         scorer = Accuracy # SGD can not predict probability
     else:
-        scorer = LogLoss
+        scorer = logLoss
     if model.__class__.__name__ in ['ExtraTreesClassifier', 
         'BoostedTreesClassifier', 'MultilayerPerceptronClassifier', 'DBN',
         'CalibratedClassifierCV']:
@@ -367,38 +368,7 @@ def ReportPerfCV(model, feature_set, y, calibrated = False, n_folds = 5,
 
 _, y, _ = LoadData(); del _
 CONFIG['ensemble_list'] = ['btc', 'btc2', 'svc', 'mpc', 'etc', 'knc', 'nn']
-def GetLogisticEnsemble(y, CONFIG):
-    Y = np.array([int(i[-1]) for i in y]) - 1
-    X, Xtest = GetDataset("ensemble", ensemble_list = CONFIG['ensemble_list'])
-    res = np.empty((len(Xtest), 9))
-    clf = LogisticRegressionCV(n_jobs = 12, fit_intercept = False, Cs = 100,
-            cv = 5, verbose = 2)
-    for i in xrange(9):
-        clf.fit(X[:, np.arange(6)*9 + i], (Y == i) + 0)
-        res[:,i] = clf.predict_proba(Xtest[:, np.arange(6)*9 + i])[:,1]
-    return res 
 
-def GetPredictionParallel():
-    model = SVC(C = 4., gamma = 1., probability = True)
-    feature_set = 'text'
-    n_folds = 5
-    _, y, _ = LoadData(); del _
-    kcv = StratifiedKFold(y, n_folds, random_state = CONFIG['SEED'])
-    idx = []
-    X, Xtest = GetDataset(feature_set)
-    for train_idx, valid_idx in kcv:
-        idx.append((train_idx, valid_idx))
-    def g(t):
-        logger.info("Starting Parallel Job...")
-        model.fit(X[t[0]], y[t[0]])
-        yhat = model.predict_proba(X[t[1]])
-        logger.info("Fold LogLoss: %.4f", log_loss(y[t[1]], yhat))
-        return yhat
-    pool = mp.Pool(processes = n_folds)
-    results = pool.map(g, idx)
-    res = np.empty((len(X), len(np.unique(y))))
-    for i in xrange(len(idx)):
-        res[idx[i][1]] = results[i]
 
 def OptSVC(C, gamma):
     model = SVC(C = C, gamma = gamma, probability = True)
@@ -414,7 +384,7 @@ def OptBTC(step_size = .5, max_iterations = 100, row_subsample = .9,
     logger.info("Params: %s", model.get_params())
     return ReportPerfCV(model, "original", y) 
 
-if __name__ == '__main__':
+if __name__ == '_main__':
     logger.info("Running %s, on %d cores" %(selected_model, nCores))
     _, y, _ = LoadData(); del _
     CONFIG['ensemble_list'] = ['btc','btc2','btc3','btc4','svc','svc2','svc3',
@@ -488,3 +458,40 @@ if __name__ == '_main__':
                         'max_depth': UniformInt(5,40)}
 
     clf.fit(func = OptBTC, params_dist = params_dist)
+
+if __name__ == '__main__':
+    param_distributions =        {
+            'max_iterations'    : UniformInt(100,3000),
+            'step_size'         : LogUniform(.0001, 1.),
+            'max_depth'         : UniformInt(2,50),
+            'row_subsample'     : Uniform(.3,1.),
+            'column_subsample'  : Uniform(.3, 1.),
+            'min_child_weight'  : LogUniform(.01,100),
+            'min_loss_reduction': Uniform(0.0001,10)
+            }
+    from gl import BoostedTreesClassifier
+    logger2 = logging.getLogger('graphlab')
+    logger2.setLevel(logging.CRITICAL)
+    CONFIG['ensemble_list'] = ['btc','btc2','btc3','btc4','svc','svc2','svc3',
+            'nn','nn2','nic', 'mpc','knc','etc','cccv', 'log','crfcbag',
+            'cetcbag']
+    X, Xtest = GetDataset('ensemble', ensemble_list = CONFIG['ensemble_list'])
+    print "lkjr"
+    clf = GaussianProcessCV(
+            estimator           = BoostedTreesClassifier(verbose = False),
+            param_distributions = param_distributions,
+            kernel              = DoubleExponential,
+            scoring             = LogLoss, 
+            mu_prior            = -1.,
+            sigma_prior         = .30,
+            sig                 = .01,
+            cv                  = 5, 
+            max_iter            = 55,
+            random_state        = 1, 
+            time_budget         = 48*3600)
+    clf.fit(X, y)
+    #clf = RandomSearchCV(estimator = BoostedTreesClassifier(verbose = False),
+    #        param_distributions = param_distributions,
+    #        cv = 5, max_iter = 100, random_state = int(job_id))
+    #clf.fit(X[:5000], y[:5000])
+   

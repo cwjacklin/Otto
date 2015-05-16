@@ -8,7 +8,7 @@ from sklearn.cross_validation import StratifiedKFold
 from sklearn.metrics import log_loss
 from ml import *
 
-if True:
+if False:
     X, Xtest = GetDataset("ensemble", 
             ensemble_list = ['btc','btc2','btc3','btc4','svc','svc2','svc3',
                 'nn','nn2','nic', 'mpc','knc','etc','cccv', 'log'])
@@ -105,6 +105,7 @@ params = dict(
             stop = l_stop, is_log = True),
         AdjustVariable('update_momentum', start = m_start, 
             stop = m_stop, is_log = False),
+        EarlyStopping(patience=200),
         ],
     max_epochs = max_epochs,
     verbose = 1,
@@ -207,7 +208,7 @@ def OptMPC(max_iter, hidden_layer_sizes, alpha, learning_rate_init, power_t,
     return -log_loss(y, res)
 
 
-if True:
+if False:
     params_dist = {
             'max_iter'          : UniformInt(100, 1000),
             'hidden_layer_sizes': UniformInt(100, 1000),
@@ -250,3 +251,58 @@ if False:
         logger.info("LogLoss: %10.4f ", res[i])
         np.savez_compressed("res2_NN.npz", res = res)
     """
+
+
+if False:
+    CONFIG['ensemble_list'] = \
+    ['btc','btc2','btc3','btc4','svc','svc2','svc3','nn','nn2','nic',
+            'mpc','knc','etc','cccv', 'log', 'cetcbag', 'crfcbag']
+    X, Xtest = GetDataset('ensemble', ensemble_list = CONFIG['ensemble_list'])
+    _, y, _ = LoadData(); del _
+    Y = np.array([int(i[-1]) for i in y])
+    Y = Y.astype('int32') - 1
+    X = X.astype('float32')
+
+if True:
+    l_start = .017
+    l_stop = 1e-6
+    m_start = .9
+    m_stop = .999
+    max_epochs = 3000
+    print l_start, l_stop, m_start, m_stop, max_epochs
+
+    params = dict(
+        layers = [
+            ('input', layers.InputLayer),
+            ('dropout1', layers.DropoutLayer),
+            ('hidden1', layers.DenseLayer),
+            ('dropout2', layers.DropoutLayer),
+            ('output', layers.DenseLayer),
+            ],
+
+        input_shape = (None, 153),
+        dropout1_p = .1,
+        hidden1_num_units = 500,
+        dropout2_p = .2,
+        output_nonlinearity = softmax,
+        output_num_units = 9,
+
+        update = nesterov_momentum,
+        update_learning_rate = theano.shared(float32(l_start)),
+        update_momentum = theano.shared(float32(m_start)),
+
+        regression = False,
+        on_epoch_finished = [
+            AdjustVariable('update_learning_rate', start = l_start, 
+                stop = l_stop, is_log = True),
+            AdjustVariable('update_momentum', start = m_start, 
+                stop = m_stop, is_log = False),
+            EarlyStopping(patience=70),
+            ],
+        max_epochs = max_epochs,
+        verbose = 1,
+        )
+    clf = NeuralNet(**params)
+    clf.fit(X,Y)
+
+
