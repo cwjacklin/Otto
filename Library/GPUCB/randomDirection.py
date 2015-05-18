@@ -56,8 +56,9 @@ class RandomDirection():
 def f(x, y):
     return x*np.sin(np.pi*x) + y*np.sin(np.pi*y)
 
-clf = RandomDirection(decay_start = 0, decay_stop = -3, max_iter = 100)
-clf.fit(func = f, param_ranges = {'x': [-5,0], 'y': [0,5]})
+if __name__ == '__main__':
+    clf = RandomDirection(decay_start = 0, decay_stop = -3, max_iter = 100)
+    clf.fit(func = f, param_ranges = {'x': [-5,0], 'y': [0,5]})
 
 
 if False:

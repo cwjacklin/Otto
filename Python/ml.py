@@ -174,7 +174,7 @@ PARAM_GRID = {
         'MultilayerPerceptronClassifier': {
             'max_iter'      : randint(100,1000),
             'hidden_layer_sizes' : randint(100,1000),
-            'alpha'         : np.logspace(-15,0,24, base = 2),
+            'alpha'         : np.logspace(-15,0,100, base = 2),
             'learning_rate' : ['constant', 'invscaling'],
             'learning_rate_init': np.logspace(-10,0,base = 2),
             'power_t'       : uniform(.3,.69),
@@ -388,7 +388,8 @@ if __name__ == '_main__':
     logger.info("Running %s, on %d cores" %(selected_model, nCores))
     _, y, _ = LoadData(); del _
     CONFIG['ensemble_list'] = ['btc','btc2','btc3','btc4','svc','svc2','svc3',
-            'nn','nn2','nic', 'mpc','knc','etc','cccv', 'log']
+                             'nn','nn2', 'nic', 'mpc','knc','etc','log',
+                             'keras', 'cccv', 'crfcbag', 'cetcbag'] 
     model_dict = { 'LR'   : LogisticRegression,
                    'RFC'  : RandomForestClassifier,
                    'ETC'  : ExtraTreesClassifier,
@@ -419,7 +420,7 @@ if __name__ == '_main__':
     if model_id in ['LR','CMC']:
         CONFIG['nGrids'] = 500
     elif model_id in ['RFC', 'ETC', 'GBC', 'MPC', 'BTC', 'CCCV']:
-        CONFIG['nGrids'] = 50
+        CONFIG['nGrids'] = 30
     else:
         CONFIG['nGrids'] = 30
     if 'random_state' in model.get_params(): 
@@ -474,7 +475,7 @@ if __name__ == '__main__':
     logger2.setLevel(logging.CRITICAL)
     CONFIG['ensemble_list'] = ['btc','btc2','btc3','btc4','svc','svc2','svc3',
             'nn','nn2','nic', 'mpc','knc','etc','cccv', 'log','crfcbag',
-            'cetcbag']
+            'cetcbag', 'keras']
     X, Xtest = GetDataset('ensemble', ensemble_list = CONFIG['ensemble_list'])
     print "lkjr"
     clf = GaussianProcessCV(
@@ -488,10 +489,38 @@ if __name__ == '__main__':
             cv                  = 5, 
             max_iter            = 55,
             random_state        = 1, 
-            time_budget         = 48*3600)
+            time_budget         = 24*3600)
     clf.fit(X, y)
     #clf = RandomSearchCV(estimator = BoostedTreesClassifier(verbose = False),
     #        param_distributions = param_distributions,
     #        cv = 5, max_iter = 100, random_state = int(job_id))
     #clf.fit(X[:5000], y[:5000])
-   
+
+if __name__ == '_main__':
+    param_distributions = {
+            'max_iter'              : UniformInt(100,1500),
+            'hidden_layer_sizes'    : UniformInt(100,1000),
+            'alpha'                 : LogUniform(.001,0.01),
+            'learning_rate_init'    : Uniform(.1,1.),
+            'power_t'               : Uniform(.5,.99),
+            }
+    CONFIG['ensemble_list'] = ['btc','btc2','btc3','btc4','svc','svc2','svc3',
+                             'nn','nn2', 'nic', 'mpc','knc','etc','log',
+                             'keras', 'cccv', 'crfcbag', 'cetcbag'] 
+    X, Xtest = GetDataset('ensemble', ensemble_list = CONFIG['ensemble_list'])
+    clf = GaussianProcessCV(
+            estimator           = MultilayerPerceptronClassifier(
+                            verbose         = False, 
+                            learning_rate   = 'invscaling'),
+            param_distributions = param_distributions,
+            kernel              = DoubleExponential,
+            scoring             = LogLoss, 
+            mu_prior            = -.50,
+            sigma_prior         = .10,
+            sig                 = .001,
+            cv                  = 5, 
+            max_iter            = 100,
+            random_state        = int(job_id), 
+            time_budget         = 24*3600
+            )
+    clf.fit(X, y)

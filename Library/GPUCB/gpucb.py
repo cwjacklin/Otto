@@ -336,7 +336,7 @@ class GaussianProcessCV(BaseEstimator):
     def log_loss_cv(self, **params):
         self.estimator.set_params(**params)
         return np.mean(cross_val_score(self.estimator, self.X, self.y, 
-                scoring = self.scoring, n_jobs = self.cv, cv = self.cv))
+                scoring = self.scoring, n_jobs = -1, cv = self.cv))
     def fit(self, X, y):
         self.X = X
         self.y = y
@@ -367,7 +367,7 @@ class RandomSearchCV(BaseEstimator):
     def log_loss_cv(self, **params):
         self.estimator.set_params(**params)
         return np.mean(cross_val_score(self.estimator, self.X, self.y,
-            scoring = self.scoring, n_jobs = self.cv, cv = self.cv))
+            scoring = self.scoring, n_jobs = -1, cv = self.cv))
     def fit(self, X, y):
         if self.random_state is not None: np.random.seed(self.random_state)
         time_start = time.time() 
