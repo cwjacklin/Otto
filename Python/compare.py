@@ -137,7 +137,7 @@ if False:
         j += 1
 
 ## 6. Random Direction
-if True:
+if False:
     RD = []; j = -1
     kcv = StratifiedKFold(y, n_folds = 62, random_state = 1)
     logger.info('Starting Search...\n')
@@ -166,3 +166,41 @@ if True:
             })
         RD.append(clf.best)
         pickle.dump(RD,open('RD60.pkl','w'))
+
+if True:
+    from hyperopt import hp
+    from hyperopt import fmin, tpe, hp, STATUS_OK, Trials
+    kcv = StratifiedKFold(y, n_folds = 62, random_state = 1)
+    logger.info('Starting Search...\n')
+    for train_idx, valid_idx in kcv:
+        def f(params):
+            mi = params['mi']
+            md = params['md']
+            s = params['s']
+            r = params['r']
+            c = params['c']
+            mi = int(mi)
+            md = int(md)
+            clf = BoostedTreesClassifier(max_iterations = mi,
+                    step_size = s,
+                    max_depth = md,
+                    row_subsample = r,
+                    column_subsample = c,
+                    verbose = 0)
+            clf.fit(X[valid_idx], y[valid_idx])
+            yhat = clf.predict_proba(X[train_idx])
+            return log_loss(y[train_idx], yhat)
+        param_ranges = {
+                'mi': hp.quniform('mi',  5, 36, 1),
+                's' :  hp.uniform( 's', .4,  1),
+                'md': hp.quniform('md',  4, 12, 1),
+                'r' :  hp.uniform( 'r', .4,  1),
+                'c' :  hp.uniform( 'c', .4,  1)
+            }
+        trials = Trials()
+        best = fmin(f, param_ranges, algo = tpe.suggest, trials = trials, 
+                max_evals = 243)
+        RD.append(np.min(trials.losses))
+        pickle.dump(RD,open('TPE.pkl','w'))
+
+   
