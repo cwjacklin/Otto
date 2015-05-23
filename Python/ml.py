@@ -141,11 +141,11 @@ PARAM_GRID = {
             'n_estimators'  : randint(100,1000)
             },
         'CalibratedClassifierCV':         {
-            #'base_estimator__criterion'         : ['gini', 'entropy'],
-            #'base_estimator__bootstrap'         : [True, False],
-            #'base_estimator__max_depth'         : randint(4,20),
-            #'base_estimator__min_samples_split' : randint(1, 21),
-            #'base_estimator__min_samples_leaf'  : randint(1, 21),
+            'base_estimator__criterion'         : ['gini', 'entropy'],
+            'base_estimator__bootstrap'         : [True, False],
+            'base_estimator__max_depth'         : randint(4,20),
+            'base_estimator__min_samples_split' : randint(1, 21),
+            'base_estimator__min_samples_leaf'  : randint(1, 21),
             'cv'                                : randint(3,15),
             'base_estimator__max_features'      : randint(10,93),
             'base_estimator__n_estimators'      : randint(100, 1000)
@@ -269,7 +269,6 @@ def FindParams(model, feature_set, y, CONFIG, subsample = None,
         logger.info("Found params (%s > %.4f): %s" %(
                     stringify(model, feature_set),
                     clf.best_score_, clf.best_params_))
-        #ipdb.set_trace()
         for fit_model in clf.grid_scores_:
             logger.info("MeanCV: %.4f", fit_model[1])
             for para, para_value in fit_model[0].iteritems():
@@ -367,8 +366,6 @@ def ReportPerfCV(model, feature_set, y, calibrated = False, n_folds = 5,
     return res, -log_loss(y, res)
 
 _, y, _ = LoadData(); del _
-CONFIG['ensemble_list'] = ['btc', 'btc2', 'svc', 'mpc', 'etc', 'knc', 'nn']
-
 
 def OptSVC(C, gamma):
     model = SVC(C = C, gamma = gamma, probability = True)
@@ -429,11 +426,11 @@ if __name__ == '_main__':
     res = FindParams(model, dataset, y, CONFIG)
 
 if __name__ == '_main__':
-    #res = GPUCB(func = OptSVC, kernel = Matern32, 
-    #        params_dist = {'C': Uniform(0,20), 'gamma': Uniform(1, 20)}, 
-    #        sig = .005, mu_prior = -.5, sigma_prior = .05, 
-    #        n_iter = int(job_id), n_grid = 1000, seed = int(job_id),
-    #        time_budget = int(job_id)*3600)
+    res = GPUCB(func = OptSVC, kernel = Matern32, 
+            params_dist = {'C': Uniform(0,20), 'gamma': Uniform(1, 20)}, 
+            sig = .005, mu_prior = -.5, sigma_prior = .05, 
+            n_iter = int(job_id), n_grid = 1000, seed = int(job_id),
+            time_budget = int(job_id)*3600)
     res = GPUCB(func = OptBTC, kernel = Matern32,
             params_dist = {'max_iterations': UniformInt(500,2500),
                             'step_size': LogUniform(.001,.1),
@@ -491,10 +488,10 @@ if __name__ == '__main__':
             random_state        = 1, 
             time_budget         = 24*3600)
     clf.fit(X, y)
-    #clf = RandomSearchCV(estimator = BoostedTreesClassifier(verbose = False),
-    #        param_distributions = param_distributions,
-    #        cv = 5, max_iter = 100, random_state = int(job_id))
-    #clf.fit(X[:5000], y[:5000])
+    clf = RandomSearchCV(estimator = BoostedTreesClassifier(verbose = False),
+            param_distributions = param_distributions,
+            cv = 5, max_iter = 100, random_state = int(job_id))
+    clf.fit(X[:5000], y[:5000])
 
 if __name__ == '_main__':
     param_distributions = {

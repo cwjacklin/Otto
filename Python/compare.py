@@ -168,6 +168,7 @@ if False:
         pickle.dump(RD,open('RD60.pkl','w'))
 
 if True:
+    RD = []
     from hyperopt import hp
     from hyperopt import fmin, tpe, hp, STATUS_OK, Trials
     kcv = StratifiedKFold(y, n_folds = 62, random_state = 1)
